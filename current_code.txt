@@ -1,0 +1,101 @@
+                              {isSelected && (
+                                <div className="absolute top-2 right-2 w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-white text-[10px] whitespace-normal md:whitespace-pre-line">
+                                  ✓
+                                </div>
+                              )}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+            </div>
+          )}
+
+                    {type === "quick_contact_form" ? (
+            <div className="pt-6 whitespace-normal md:whitespace-pre-line flex flex-row gap-4">
+              <button
+                type="button"
+                onClick={() => setFormData({})}
+                className="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-lg transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-1/2 bg-[#004899] hover:bg-blue-900 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {submitting ? "Gönderiliyor..." : "Gönder"}
+              </button>
+            </div>
+          ) : (
+<div className="pt-6 whitespace-normal md:whitespace-pre-line">
+            <button
+              type="submit"
+              disabled={submitting}
+              className={
+                isStyledForm
+                  ? "w-full bg-primary hover:bg-[#002147] text-white font-label-md text-label-md py-4 rounded-lg shadow-sm transition-all duration-300 transform active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:scale-100"
+                  : "w-full py-4 bg-primary text-white font-bold text-label-md rounded-lg hover:bg-on-primary-fixed-variant active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-70 disabled:cursor-not-allowed"
+              }
+            >
+              {submitting
+                ? isStyledForm
+                  ? "Gönderiliyor..."
+                  : "İşleniyor..."
+                : isStyledForm
+                  ? "Başvuruyu Tamamla"
+                  : "Kaydı Tamamla"}
+              {!submitting && (
+                <span
+                  className="material-symbols-outlined whitespace-normal md:whitespace-pre-line"
+                  translate="no"
+                  aria-hidden="true"
+                >
+                  send
+                </span>
+              )}
+              {submitting && (
+                <svg
+                  className="animate-spin h-5 w-5 text-white whitespace-normal md:whitespace-pre-line"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25 whitespace-normal md:whitespace-pre-line"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75 whitespace-normal md:whitespace-pre-line"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+              )}
+            </button>
+            {isStyledForm && (
+              <p
+                className={`mt-4 ${block.styles?.textAlign ? "" : "text-center"} font-caption text-caption text-text-muted px-4`}
+              >
+                Gönder butonuna basarak kişisel verilerinizin işlenmesine dair
+                aydınlatma metnini okuduğunuzu ve kabul ettiğinizi beyan etmiş
+                olursunuz.
+              </p>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+};
+
+const ClubRegistrationFormBlock = ({
+  block,
+  index,
