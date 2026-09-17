@@ -2937,6 +2937,11 @@ export const DynamicBlockRenderer = ({
     return `${monthNames[mIndex]} ${year}`;
   };
 
+  const formatDynamicTitle = (title: string, dynamicDate: string) => {
+    if (!title) return title;
+    return title.replace(/(Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)\s+\d{4}/gi, dynamicDate);
+  };
+
 
   const renderBlock = (block: any, index: number) => {
     const renderContent = () => {
@@ -6190,7 +6195,7 @@ export const DynamicBlockRenderer = ({
                       className="text-2xl font-bold text-slate-800 whitespace-normal md:whitespace-pre-line"
                       style={getTitleStyle(block)}
                     >
-                      {block.title || getNavMonthYear(block.month, calendarMonthOffsets[index] || 0)}
+                      {block.title ? formatDynamicTitle(block.title, getNavMonthYear(block.month, calendarMonthOffsets[index] || 0)) : getNavMonthYear(block.month, calendarMonthOffsets[index] || 0)}
                     </h2>
                     {typeof window !== 'undefined' && window.location.pathname.startsWith('/admin') && (
                       <button onClick={() => setCalendarMonthOffsets(prev => ({...prev, [index]: (prev[index] || 0) + 1}))} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors"><ChevronRight className="w-5 h-5 text-slate-600" /></button>
@@ -6614,7 +6619,7 @@ export const DynamicBlockRenderer = ({
                 )}
                 <div className="flex flex-col gap-1">
                   <h2 className="font-headline-xl text-headline-xl text-on-surface whitespace-normal md:whitespace-pre-line" style={getTitleStyle(block)}>
-                    {block.title || getNavMonthYear(block.month || "Ekim 2023", calendarMonthOffsets[index] || 0)}
+                    {block.title ? formatDynamicTitle(block.title, getNavMonthYear(block.month || "Ekim 2023", calendarMonthOffsets[index] || 0)) : getNavMonthYear(block.month || "Ekim 2023", calendarMonthOffsets[index] || 0)}
                   </h2>
                   {block.title && block.month && (
                     <div className="text-lg font-semibold text-primary whitespace-normal md:whitespace-pre-line">
