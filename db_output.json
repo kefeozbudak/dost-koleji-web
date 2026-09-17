@@ -1,0 +1,45 @@
+[
+  {
+    "image": "https://firebasestorage.googleapis.com/v0/b/upheld-welder-321314.firebasestorage.app/o/media%2F1786530739239_c20vmc_kamp%C3%BCsler--banner-2.jpg?alt=media&token=b1cfab84-7893-4957-bfda-473917ef1fb4",
+    "subtitle": "Öğrencilerimizin gelişimi için uzman diyetisyenler\ntarafından hazırlanan, taze ve besleyici malzemelerle\nzenginleştirilmiş günlük yemek programımız.",
+    "styles": {
+      "overlayColor": "#1a5590",
+      "overlayHoverReveal": false,
+      "enableDarkOverlay": true,
+      "overlayOpacity": 75
+    },
+    "badge": "Dost Koleji Sağlıklı Yaşam",
+    "title": "Aylık Yemek Menüsü",
+    "type": "menu_hero"
+  },
+  {
+    "subtitle": "Geleceğin sağlıklı nesilleri için dengeli öğünler.",
+    "days": [],
+    "month": "",
+    "type": "menu_calendar",
+    "title": "Eylül 2026 Yemek Menümüz"
+  },
+  {
+    "items": [
+      {
+        "desc": "Tüm ürünlerimiz ISO 22000 gıda güvenliği sertifikalıdır.",
+        "title": "Kalite Standartları",
+        "icon": "restaurant",
+        "iconColor": "#1d4eca"
+      },
+      {
+        "icon": "eco",
+        "title": "Taze ve Yerel",
+        "desc": "Sebze ve meyvelerimiz günlük olarak yerel üreticilerden temin edilir.",
+        "iconColor": "#006a62"
+      },
+      {
+        "icon": "nutrition",
+        "iconColor": "#0ea5e9",
+        "title": "Uzman Görüşü",
+        "desc": "Menülerimiz çocuk gelişimi uzmanları eşliğinde hazırlanır."
+      }
+    ],
+    "type": "menu_features"
+  }
+]
