@@ -27,7 +27,9 @@ export default function CalendarGridEditor({ block, arrayKey, onChange, activeAr
         }
       }, 100);
     }
-  }, [activeArrayItem, arrayKey, currentArray]);
+    // Only run when activeArrayItem changes, avoid re-running when currentArray updates on keystrokes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeArrayItem, arrayKey]);
   
   // Extract year/month
   const monthMap: Record<string, number> = {
