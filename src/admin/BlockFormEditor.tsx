@@ -3519,16 +3519,119 @@ export default function BlockFormEditor({
                {renderInputWithStyle('Bölüm İkonu (Material)', 'sectionIcon')}
                {renderTextareaWithStyle('Bölüm Açıklaması', 'subtitle')}
             </div>
+
+            <div className="bg-slate-100 p-4 rounded-xl space-y-4 mb-4">
+               <h4 className="text-xs font-bold text-slate-500 uppercase">Kart CSS Renk ve Boyut Ayarları (Genel)</h4>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Kısa Bilgi Rengi
+                    </label>
+                    <input
+                      type="color"
+                      value={block.styles?.itemBadgeColor || "#000000"}
+                      onChange={(e) => handleChange("styles", { ...block.styles, itemBadgeColor: e.target.value })}
+                      className="w-full h-8 rounded border border-slate-300 cursor-pointer mb-3"
+                    />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Kısa Bilgi Boyutu
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="8"
+                        max="40"
+                        value={parseInt(block.styles?.itemBadgeSize) || 11}
+                        onChange={(e) => handleChange("styles", { ...block.styles, itemBadgeSize: e.target.value + "px" })}
+                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        placeholder="11px"
+                        value={block.styles?.itemBadgeSize || ""}
+                        onChange={(e) => handleChange("styles", { ...block.styles, itemBadgeSize: e.target.value })}
+                        className="w-16 text-xs border-slate-300 rounded p-1.5 text-center shrink-0"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      İsim Rengi
+                    </label>
+                    <input
+                      type="color"
+                      value={block.styles?.itemTitleColor || "#000000"}
+                      onChange={(e) => handleChange("styles", { ...block.styles, itemTitleColor: e.target.value })}
+                      className="w-full h-8 rounded border border-slate-300 cursor-pointer mb-3"
+                    />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      İsim Boyutu
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="10"
+                        max="40"
+                        value={parseInt(block.styles?.itemTitleSize) || 16}
+                        onChange={(e) => handleChange("styles", { ...block.styles, itemTitleSize: e.target.value + "px" })}
+                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        placeholder="16px"
+                        value={block.styles?.itemTitleSize || ""}
+                        onChange={(e) => handleChange("styles", { ...block.styles, itemTitleSize: e.target.value })}
+                        className="w-16 text-xs border-slate-300 rounded p-1.5 text-center shrink-0"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Unvan Rengi
+                    </label>
+                    <input
+                      type="color"
+                      value={block.styles?.itemDescColor || "#000000"}
+                      onChange={(e) => handleChange("styles", { ...block.styles, itemDescColor: e.target.value })}
+                      className="w-full h-8 rounded border border-slate-300 cursor-pointer mb-3"
+                    />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Unvan Boyutu
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="10"
+                        max="40"
+                        value={parseInt(block.styles?.itemDescSize) || 14}
+                        onChange={(e) => handleChange("styles", { ...block.styles, itemDescSize: e.target.value + "px" })}
+                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        placeholder="14px"
+                        value={block.styles?.itemDescSize || ""}
+                        onChange={(e) => handleChange("styles", { ...block.styles, itemDescSize: e.target.value })}
+                        className="w-16 text-xs border-slate-300 rounded p-1.5 text-center shrink-0"
+                      />
+                    </div>
+                  </div>
+               </div>
+            </div>
+
             {renderArrayEditor(
               'items',
               [
                 { key: 'name', label: 'İsim', type: 'text' },
                 { key: 'role', label: 'Unvan/Görev', type: 'text' },
                 { key: 'image', label: 'Fotoğraf', type: 'image' },
-                { key: 'desc', label: 'Kısa Bilgi', type: 'textarea' },
+                { key: 'desc', label: 'Kısa Bilgi (Birim/Bölüm)', type: 'textarea' },
                 { key: 'buttonText', label: 'Buton Metni', type: 'text' },
                 { key: 'url', label: 'Buton URL', type: 'url' },
                 { key: 'hideButton', label: 'Butonu Gizle', type: 'checkbox' },
+                { key: "itemBadgeColor", label: "Kısa Bilgi Özel Renk", type: "color" },
+                { key: "itemTitleColor", label: "İsim Özel Renk", type: "color" },
+                { key: "itemDescColor", label: "Unvan Özel Renk", type: "color" },
               ],
               block.type === 'management_vice_rectors' ? 'Rektör Yardımcıları' : 'Dekanlar/Yöneticiler'
             )}

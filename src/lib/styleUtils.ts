@@ -60,6 +60,12 @@ export const getItemTitleStyle = (block: any, item?: any) => {
   return style;
 };
 
+export const getItemBadgeStyle = (block: any, item?: any) => {
+  const style: React.CSSProperties = { ...getStyle(block, "itemBadge") };
+  if (item && item.itemBadgeColor) style.color = item.itemBadgeColor;
+  return style;
+};
+
 export const getItemDescStyle = (block: any, item?: any) => {
   const style: React.CSSProperties = { ...getStyle(block, "itemDesc") };
   if (item && item.itemDescColor) style.color = item.itemDescColor;
@@ -179,6 +185,12 @@ export const getCardTitleStyle = (item: any, block: any) => {
 export const getCardDescStyle = (item: any, block: any) => {
   const style = { ...getItemDescStyle(block) };
   if (item?.itemDescColor) style.color = item.itemDescColor;
+  return style;
+};
+
+export const getCardBadgeStyle = (item: any, block: any) => {
+  const style = { ...getItemBadgeStyle(block) };
+  if (item?.itemBadgeColor) style.color = item.itemBadgeColor;
   return style;
 };
 
