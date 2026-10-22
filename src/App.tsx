@@ -95,14 +95,22 @@ export default function App() {
 
         {/* Admin Login */}
         <Route
+          path="/dadmin"
+          element={isAdmin ? <Navigate to="/admin" replace /> : <AdminLogin />}
+        />
+        <Route
+          path="/dadmin/login"
+          element={isAdmin ? <Navigate to="/admin" replace /> : <AdminLogin />}
+        />
+        <Route
           path="/admin/login"
-          element={isAdmin ? <Navigate to="/admin" /> : <AdminLogin />}
+          element={isAdmin ? <Navigate to="/admin" replace /> : <AdminLogin />}
         />
 
         {/* Admin Routes */}
         <Route
           path="/admin"
-          element={isAdmin ? <AdminLayout /> : <Navigate to="/admin/login" />}
+          element={isAdmin ? <AdminLayout /> : <Navigate to="/dadmin" replace />}
         >
           <Route index element={<AdminDashboard />} />
           <Route path="editor/:pageId" element={<PageEditor />} />
