@@ -29,7 +29,7 @@ import { defaultEgitimSistemiData, defaultLgsCalculatorData } from '../lib/defau
 
 export default function AdminLayout() {
   const location = useLocation();
-  const editorMatch = location.pathname.match(/\/admin\/editor\/([^/]+)/);
+  const editorMatch = location.pathname.match(/\/dadmin\/editor\/([^/]+)/);
   const currentEditingPageId = editorMatch ? editorMatch[1] : null;
   const currentPreviewUrl = currentEditingPageId 
     ? (currentEditingPageId === 'home' ? '/' : `/${currentEditingPageId}`)
@@ -233,19 +233,19 @@ export default function AdminLayout() {
   }, []);
 
   const menuItems = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Genel Bakış', path: '/admin' },
-    { id: 'reports', icon: MessageSquare, label: 'Rapor Merkezi', path: '/admin/reports' },
-    { id: 'lgs-center', icon: Calculator, label: 'LGS Merkezi', path: '/admin/lgs-center' },
-    { id: 'clubs', icon: Users, label: 'Kulüp Merkezi', path: '/admin/clubs' },
-    { id: 'scholarship', icon: GraduationCap, label: 'Bursluluk Merkezi', path: '/admin/scholarship' },
-    { id: 'assistant', icon: Bot, label: 'Veli Asistanı', path: '/admin/assistant' },
-    { id: 'media', icon: ImageIcon, label: 'Medya Merkezi', path: '/admin/media' },
-    { id: 'appearance', icon: Menu, label: 'Görünüm & Menü', path: '/admin/appearance' },
-    { id: 'popups', icon: Layers, label: 'Popup Yönetimi', path: '/admin/popups' },
-    { id: 'analytics', icon: BarChart3, label: 'Trafik Analizi', path: '/admin/analytics' },
-    { id: 'backups', icon: DatabaseBackup, label: 'Yedekleme & Drive', path: '/admin/backups' },
-    { id: 'settings', icon: Settings, label: 'Ayarlar', path: '/admin/settings' },
-    ...(role === 'super_admin' ? [{ id: 'users', icon: ShieldCheck, label: 'Kullanıcı Yönetimi', path: '/admin/users' }] : []),
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Genel Bakış', path: '/dadmin' },
+    { id: 'reports', icon: MessageSquare, label: 'Rapor Merkezi', path: '/dadmin/reports' },
+    { id: 'lgs-center', icon: Calculator, label: 'LGS Merkezi', path: '/dadmin/lgs-center' },
+    { id: 'clubs', icon: Users, label: 'Kulüp Merkezi', path: '/dadmin/clubs' },
+    { id: 'scholarship', icon: GraduationCap, label: 'Bursluluk Merkezi', path: '/dadmin/scholarship' },
+    { id: 'assistant', icon: Bot, label: 'Veli Asistanı', path: '/dadmin/assistant' },
+    { id: 'media', icon: ImageIcon, label: 'Medya Merkezi', path: '/dadmin/media' },
+    { id: 'appearance', icon: Menu, label: 'Görünüm & Menü', path: '/dadmin/appearance' },
+    { id: 'popups', icon: Layers, label: 'Popup Yönetimi', path: '/dadmin/popups' },
+    { id: 'analytics', icon: BarChart3, label: 'Trafik Analizi', path: '/dadmin/analytics' },
+    { id: 'backups', icon: DatabaseBackup, label: 'Yedekleme & Drive', path: '/dadmin/backups' },
+    { id: 'settings', icon: Settings, label: 'Ayarlar', path: '/dadmin/settings' },
+    ...(role === 'super_admin' ? [{ id: 'users', icon: ShieldCheck, label: 'Kullanıcı Yönetimi', path: '/dadmin/users' }] : []),
   ];
 
   const hasAccess = (id: string) => {
@@ -375,15 +375,15 @@ export default function AdminLayout() {
             <nav className="space-y-1">
               {hasAccess('dashboard') && (
                 <Link
-                  to="/admin"
+                  to="/dadmin"
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={`flex items-center gap-3 px-3 py-2.5 md:py-2 rounded-md text-sm md:text-xs font-semibold transition-colors ${
-                    location.pathname === '/admin'
+                    location.pathname === '/dadmin'
                       ? 'bg-white text-blue-700 shadow-sm border border-blue-100 font-bold' 
                       : 'text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <LayoutDashboard className={`w-5 h-5 md:w-4 md:h-4 ${location.pathname === '/admin' ? 'text-blue-700' : 'text-slate-500'}`} />
+                  <LayoutDashboard className={`w-5 h-5 md:w-4 md:h-4 ${location.pathname === '/dadmin' ? 'text-blue-700' : 'text-slate-500'}`} />
                   <span>Genel Bakış</span>
                 </Link>
               )}
@@ -394,13 +394,13 @@ export default function AdminLayout() {
                   <button
                     onClick={() => setIsPagesMenuOpen(!isPagesMenuOpen)}
                     className={`w-full flex items-center justify-between px-3 py-2.5 md:py-2 rounded-md text-sm md:text-xs font-semibold transition-colors ${
-                      location.pathname.startsWith('/admin/editor') || location.pathname === '/admin/pages'
+                      location.pathname.startsWith('/dadmin/editor') || location.pathname === '/dadmin/pages'
                         ? 'bg-white text-blue-700 shadow-sm border border-blue-100 font-bold' 
                         : 'text-slate-600 hover:bg-slate-200'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <FileText className={`w-5 h-5 md:w-4 md:h-4 ${location.pathname.startsWith('/admin/editor') || location.pathname === '/admin/pages' ? 'text-blue-700' : 'text-slate-500'}`} />
+                      <FileText className={`w-5 h-5 md:w-4 md:h-4 ${location.pathname.startsWith('/dadmin/editor') || location.pathname === '/dadmin/pages' ? 'text-blue-700' : 'text-slate-500'}`} />
                       Sayfa Yönetimi
     </div>
                     <ChevronDown className={`w-4 h-4 transition-transform ${isPagesMenuOpen ? 'rotate-180' : ''}`} />
@@ -410,10 +410,10 @@ export default function AdminLayout() {
                       {otherPages.map((page) => (
                         <Link
                           key={page.id}
-                          to={`/admin/editor/${page.id}`}
+                          to={`/dadmin/editor/${page.id}`}
                           onClick={() => setIsMobileMenuOpen(false)}
                           className={`block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                            location.pathname === `/admin/editor/${page.id}`
+                            location.pathname === `/dadmin/editor/${page.id}`
                               ? 'bg-blue-50 text-blue-700 font-bold'
                               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                           }`}
@@ -423,7 +423,7 @@ export default function AdminLayout() {
                       ))}
 
                           <Link
-                        to="/admin/pages"
+                        to="/dadmin/pages"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={`block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors mt-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100`}
                       >
@@ -439,7 +439,7 @@ export default function AdminLayout() {
                         <button
                           onClick={() => setIsEduMenuOpen(!isEduMenuOpen)}
                           className={`w-full flex items-center justify-between px-3 py-2.5 md:py-2 rounded-md text-sm md:text-xs font-semibold transition-colors ${
-                            eduPages.some(p => location.pathname === `/admin/editor/${p.id}`)
+                            eduPages.some(p => location.pathname === `/dadmin/editor/${p.id}`)
                               ? 'bg-white text-blue-700 shadow-sm border border-blue-100 font-bold'
                               : 'text-slate-600 hover:bg-slate-200'
                           }`}
@@ -456,10 +456,10 @@ export default function AdminLayout() {
                             {eduPages.map((page) => (
                               <Link
                                 key={page.id}
-                                to={`/admin/editor/${page.id}`}
+                                to={`/dadmin/editor/${page.id}`}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 className={`block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                                  location.pathname === `/admin/editor/${page.id}`
+                                  location.pathname === `/dadmin/editor/${page.id}`
                                     ? 'bg-blue-600 text-white font-bold shadow-xs'
                                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                                 }`}
@@ -479,7 +479,7 @@ export default function AdminLayout() {
                         <button
                           onClick={() => setIsFormsMenuOpen(!isFormsMenuOpen)}
                           className={`w-full flex items-center justify-between px-3 py-2.5 md:py-2 rounded-md text-sm md:text-xs font-semibold transition-colors ${
-                            formPages.some(p => location.pathname === `/admin/editor/${p.id}`)
+                            formPages.some(p => location.pathname === `/dadmin/editor/${p.id}`)
                               ? 'bg-white text-blue-700 shadow-sm border border-blue-100 font-bold'
                               : 'text-slate-600 hover:bg-slate-200'
                           }`}
@@ -496,10 +496,10 @@ export default function AdminLayout() {
                             {formPages.map((page) => (
                               <Link
                                 key={page.id}
-                                to={`/admin/editor/${page.id}`}
+                                to={`/dadmin/editor/${page.id}`}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 className={`block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                                  location.pathname === `/admin/editor/${page.id}`
+                                  location.pathname === `/dadmin/editor/${page.id}`
                                     ? 'bg-blue-600 text-white font-bold shadow-xs'
                                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                                 }`}
@@ -519,7 +519,7 @@ export default function AdminLayout() {
                         <button
                           onClick={() => setIsCampusMenuOpen(!isCampusMenuOpen)}
                           className={`w-full flex items-center justify-between px-3 py-2.5 md:py-2 rounded-md text-sm md:text-xs font-semibold transition-colors ${
-                            campusPages.some(p => location.pathname === `/admin/editor/${p.id}`)
+                            campusPages.some(p => location.pathname === `/dadmin/editor/${p.id}`)
                               ? 'bg-white text-blue-700 shadow-sm border border-blue-100 font-bold'
                               : 'text-slate-600 hover:bg-slate-200'
                           }`}
@@ -536,10 +536,10 @@ export default function AdminLayout() {
                             {campusPages.map((page) => (
                               <Link
                                 key={page.id}
-                                to={`/admin/editor/${page.id}`}
+                                to={`/dadmin/editor/${page.id}`}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 className={`block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                                  location.pathname === `/admin/editor/${page.id}`
+                                  location.pathname === `/dadmin/editor/${page.id}`
                                     ? 'bg-blue-600 text-white font-bold shadow-xs'
                                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                                 }`}
@@ -556,7 +556,7 @@ export default function AdminLayout() {
                 </>
               )}
               {filteredMenuItems.filter(i => i.id !== 'dashboard').map((item) => {
-                const isActive = location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(item.path));
+                const isActive = location.pathname === item.path || (item.path !== '/dadmin' && location.pathname.startsWith(item.path));
                 return (
                   <Link
                     key={item.path}

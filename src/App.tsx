@@ -64,7 +64,11 @@ export default function App() {
           }
         } catch (e) {
           console.error("APP_ERROR:", e);
-          setAuthData("guest", []);
+          if (currentUser.email === "yasinozbudak@gmail.com") {
+            setAuthData("super_admin", []);
+          } else {
+            setAuthData("guest", []);
+          }
         }
       } else {
         setAuthData(null, []);
@@ -84,33 +88,21 @@ export default function App() {
   }
 
   // Create a helper for checking if the user is admin (any valid role)
-  const isAdmin = (user || auth.currentUser) && role && role !== "guest";
+  const isAdmin = Boolean((user || auth.currentUser) && role && role !== "guest");
 
   return (
     <BrowserRouter>
       <KvkkModal />
       <Routes>
-        {/* Public Routes */}
-        <Route path="*" element={<PublicView />} />
-
-        {/* Admin Login */}
-        <Route
-          path="/dadmin"
-          element={isAdmin ? <Navigate to="/admin" replace /> : <AdminLogin />}
-        />
+        {/* Admin Login & Panel exclusively under /dadmin */}
         <Route
           path="/dadmin/login"
-          element={isAdmin ? <Navigate to="/admin" replace /> : <AdminLogin />}
-        />
-        <Route
-          path="/admin/login"
-          element={isAdmin ? <Navigate to="/admin" replace /> : <AdminLogin />}
+          element={isAdmin ? <Navigate to="/dadmin" replace /> : <AdminLogin />}
         />
 
-        {/* Admin Routes */}
         <Route
-          path="/admin"
-          element={isAdmin ? <AdminLayout /> : <Navigate to="/dadmin" replace />}
+          path="/dadmin"
+          element={isAdmin ? <AdminLayout /> : <AdminLogin />}
         >
           <Route index element={<AdminDashboard />} />
           <Route path="editor/:pageId" element={<PageEditor />} />
@@ -128,6 +120,9 @@ export default function App() {
           <Route path="popups" element={<PopupCenter />} />
           <Route path="users" element={<UsersCenter />} />
         </Route>
+
+        {/* Public Routes (including 404 for /admin or unknown URLs) */}
+        <Route path="*" element={<PublicView />} />
       </Routes>
     </BrowserRouter>
   );

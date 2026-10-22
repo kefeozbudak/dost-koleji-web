@@ -337,11 +337,10 @@ export default function PublicView() {
         <h1 className="text-3xl md:text-4xl font-light mb-4 text-center">404 - Sayfa Bulunamadı</h1>
         <p className="text-sm md:text-base text-slate-500 mb-8 text-center max-w-md">Aradığınız sayfa mevcut değil veya yayından kaldırılmış olabilir.</p>
         <button 
-          onClick={handleAdminLogin}
-          className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-full text-sm font-medium hover:bg-primary/90 transition-colors"
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-full text-sm font-medium hover:bg-primary/90 transition-colors cursor-pointer"
         >
-          <Lock className="w-4 h-4" />
-          Yönetici Girişi
+          Ana Sayfaya Dön
         </button>
       </div>
     );

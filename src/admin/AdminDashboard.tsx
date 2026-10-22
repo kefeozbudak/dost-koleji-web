@@ -300,7 +300,7 @@ export default function AdminDashboard() {
                      <td className="px-4 py-3 text-xs font-bold text-slate-700">{getSenderName(form)}</td>
                      <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${getTypeColor(form.type)}`}>{getTypeName(form.type)}</span></td>
                      <td className="px-4 py-3 text-right">
-                       <Link to="/admin/reports" className="p-1 text-slate-400 hover:text-blue-600 inline-block"><Eye className="w-4 h-4" /></Link>
+                       <Link to="/dadmin/reports" className="p-1 text-slate-400 hover:text-blue-600 inline-block"><Eye className="w-4 h-4" /></Link>
                      </td>
                    </tr>
                 ))}
@@ -309,7 +309,7 @@ export default function AdminDashboard() {
             )}
           </div>
           <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-center mt-auto">
-            <Link to="/admin/reports" className="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-600 transition-colors">Tüm Kayıtları Görüntüle</Link>
+            <Link to="/dadmin/reports" className="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-600 transition-colors">Tüm Kayıtları Görüntüle</Link>
           </div>
         </div>
 
@@ -375,7 +375,7 @@ export default function AdminDashboard() {
                 Trafik & Ziyaretçi Analizi
               </h3>
               <Link 
-                to="/admin/analytics" 
+                to="/dadmin/analytics" 
                 className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline"
               >
                 <span>Detaylar</span>
@@ -420,7 +420,7 @@ export default function AdminDashboard() {
               </div>
 
               <Link 
-                to="/admin/analytics"
+                to="/dadmin/analytics"
                 className="w-full mt-1 py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 transition-colors shadow-xs"
               >
                 <BarChart3 className="w-4 h-4 text-blue-400" />

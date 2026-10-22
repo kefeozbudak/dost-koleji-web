@@ -27,7 +27,7 @@ export default function AdminLogin() {
 
       if (email === 'yasinozbudak@gmail.com') {
          setAuthData('super_admin', []);
-         navigate('/admin');
+         navigate('/dadmin');
          return;
       }
 
@@ -37,7 +37,7 @@ export default function AdminLogin() {
          const data = userDoc.data();
          if (data.role && data.role !== 'guest') {
             setAuthData(data.role, data.allowedPages || []);
-            navigate('/admin');
+            navigate('/dadmin');
             return;
          }
       }

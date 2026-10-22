@@ -294,7 +294,7 @@ export default function PagesCenter() {
       await fetchPages();
       
       // Navigate to editor
-      navigate(`/admin/editor/${pageId}`);
+      navigate(`/dadmin/editor/${pageId}`);
       
     } catch (err) {
       console.error(err);
@@ -541,7 +541,7 @@ export default function PagesCenter() {
                           {page.isHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                         </button>
                         <Link 
-                          to={`/admin/editor/${page.id}`}
+                          to={`/dadmin/editor/${page.id}`}
                           className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors"
                           title="Düzenle"
                         >

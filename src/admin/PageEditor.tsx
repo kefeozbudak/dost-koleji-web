@@ -406,7 +406,7 @@ export default function PageEditor() {
           <button onClick={() => setEditorVisible(!editorVisible)} className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-200 transition-colors">
             {editorVisible ? 'Paneli Gizle' : 'Paneli Göster'}
           </button>
-          <button onClick={() => navigate('/admin/pages')} className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-200 transition-colors">İptal</button>
+          <button onClick={() => navigate('/dadmin/pages')} className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-200 transition-colors">İptal</button>
           <button onClick={handleSave} disabled={saving} className="flex-1 sm:flex-none px-4 py-2 sm:py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold uppercase tracking-widest hover:bg-blue-500 transition-colors disabled:opacity-50">
             {saving ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
           </button>
