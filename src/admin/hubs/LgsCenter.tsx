@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react";
 import {
-  collection,
-  onSnapshot,
   doc,
   deleteDoc,
-  updateDoc,
-  query,
-  where,
-  orderBy
+  updateDoc
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { useAdminStore } from "../../store/adminStore";
 import {
   Calculator,
   Trash2,
@@ -121,8 +117,9 @@ const LgsReportView = ({ data }: { data: any }) => {
 
 
 export default function LgsCenter() {
-  const [reports, setReports] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { lgsReports: sharedReports, lgsLoaded } = useAdminStore();
+  const [reports, setReports] = useState<any[]>(sharedReports || []);
+  const [loading, setLoading] = useState(!lgsLoaded && sharedReports.length === 0);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all"); // 'all', 'unread', 'read'
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -133,32 +130,11 @@ export default function LgsCenter() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, "reports"), where("type", "==", "lgs_calculator"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map((doc) => {
-          const item = { id: doc.id, ...(doc.data() as any) };
-          if (
-            item.createdAt &&
-            typeof item.createdAt === "object" &&
-            item.createdAt.seconds
-          ) {
-            item.createdAt = item.createdAt.toDate().getTime();
-          }
-          return item;
-        });
-        setReports(data.sort((a, b) => b.createdAt - a.createdAt));
-        setLoading(false);
-      },
-      (error) => {
-        console.error("LGS raporları çekilirken hata:", error);
-        setLoading(false);
-      },
-    );
-
-    return () => unsubscribe();
-  }, []);
+    setReports(sharedReports || []);
+    if (lgsLoaded || (sharedReports && sharedReports.length > 0)) {
+      setLoading(false);
+    }
+  }, [sharedReports, lgsLoaded]);
 
   const handleDelete = async (id: string) => {
     if (window.confirm("Bu kaydı silmek istediğinize emin misiniz?")) {

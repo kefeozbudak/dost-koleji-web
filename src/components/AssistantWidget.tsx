@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, FormEvent } from 'react';
 import { X, Send, Menu, CheckCircle2 } from 'lucide-react';
-import { doc, getDoc, collection, addDoc, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, getDoc, collection } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
+import { getCachedData, setCachedData, isCacheFresh, fetchWithDedup } from '../lib/cache';
+import { submitFormResilient, getCampaignAttribution } from '../lib/scholarshipCampaign';
 import Markdown from 'react-markdown';
 
 interface ChatMessage {
@@ -27,57 +29,43 @@ export default function AssistantWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Clear any previously saved chat history so refresh always starts clean
     sessionStorage.removeItem('dost_assistant_chat');
     localStorage.removeItem('dost_assistant_chat');
 
-    // Load settings from Firebase
+    const cachedSettings = getCachedData('settings_assistant', null);
+    if (cachedSettings) {
+      setSettings(cachedSettings);
+    }
+  }, []);
+
+  // Lazy-fetch settings/assistant ONLY when visitor actually opens the chat window (saves 1 read per visit!)
+  useEffect(() => {
+    if (!isOpen) return;
+    if (settings && isCacheFresh('settings_assistant', 15 * 60 * 1000) && !auth.currentUser) {
+      return;
+    }
+
+    let active = true;
     const loadSettings = async () => {
       try {
-        const docRef = doc(db, 'settings', 'assistant');
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          setSettings(snap.data());
+        const snap = await fetchWithDedup('fb_settings_assistant', () =>
+          getDoc(doc(db, 'settings', 'assistant'))
+        );
+        if (active && snap.exists()) {
+          const data = snap.data();
+          setSettings(data);
+          setCachedData('settings_assistant', data);
         }
       } catch (e) {
         console.error("Error loading assistant settings:", e);
       }
     };
 
-    // Load dynamic site pages content to pass as AI context
-    const loadSiteContext = async () => {
-      try {
-        const snapshot = await getDocs(collection(db, 'pages'));
-        const summaries: string[] = [];
-        snapshot.docs.forEach(docSnap => {
-          const d = docSnap.data();
-          if (d.title) {
-            let details = '';
-            if (Array.isArray(d.blocks)) {
-              d.blocks.forEach((b: any) => {
-                if (b.title) details += ` [Başlık: ${b.title}]`;
-                if (b.subtitle) details += ` [Altbaşlık: ${b.subtitle}]`;
-                if (b.items && Array.isArray(b.items)) {
-                  b.items.forEach((item: any) => {
-                    if (item.title) details += ` ${item.title}: ${item.desc || ''}`;
-                  });
-                }
-              });
-            }
-            summaries.push(`Sayfa "${d.title}" (${d.path || '/'}): ${details.slice(0, 400)}`);
-          }
-        });
-        if (summaries.length > 0) {
-          setSiteContext(summaries.join('\n'));
-        }
-      } catch (e) {
-        console.error("Error loading site context:", e);
-      }
-    };
-
     loadSettings();
-    loadSiteContext();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -167,18 +155,21 @@ export default function AssistantWidget() {
   const handleFormSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const formTitle = activeForm?.name || 'Hızlı İletişim Formu';
+    const attribution = getCampaignAttribution();
+    const formRef = doc(collection(db, 'forms'));
     const newDoc = {
       type: 'chat',
       status: 'new',
       createdAt: Date.now(),
       data: {
         formName: formTitle,
-        ...formData
+        ...formData,
+        ...attribution
       }
     };
 
     // Construct formatted text for WhatsApp & Email with header Dost Koleji Veli Asistanı
-    let notificationText = `*Dost Koleji Veli Asistanı* 🎓\n\n`;
+    let notificationText = `*Dost Koleji Veli Asistanı*\n\n`;
     notificationText += `*Form:* ${formTitle}\n`;
     notificationText += `*Tarih:* ${new Date().toLocaleString('tr-TR')}\n\n`;
     notificationText += `*Müşteri / Veli Bilgileri:*\n`;
@@ -197,33 +188,17 @@ export default function AssistantWidget() {
           email: targetEmail,
           text: notificationText
         })
-      });
+      }).catch(() => {});
     } catch (err) {
       console.warn('Silent notification error:', err);
     }
 
-    const tempLocalId = 'local_' + Date.now();
-    const localItem = { id: tempLocalId, ...newDoc };
-
-    // Always save to localStorage backup immediately
     try {
-      const existingBackup = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-      localStorage.setItem('dost_forms_backup', JSON.stringify([localItem, ...existingBackup]));
-    } catch (err) {
-      console.warn('Backup save error:', err);
-    }
-
-    try {
-      const docRef = await addDoc(collection(db, 'forms'), newDoc);
-      if (docRef?.id) {
-        try {
-          const backup = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-          const updatedBackup = backup.map((item: any) => item.id === tempLocalId ? { ...item, id: docRef.id } : item);
-          localStorage.setItem('dost_forms_backup', JSON.stringify(updatedBackup));
-        } catch (e) {
-          console.warn('Backup update error:', e);
-        }
-      }
+      await submitFormResilient({
+        formId: formRef.id,
+        formPayload: newDoc,
+        allowOfflineQueue: true
+      });
     } catch (error) {
       console.error(error);
     }

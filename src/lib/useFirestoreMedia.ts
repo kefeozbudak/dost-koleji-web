@@ -1,13 +1,22 @@
 import { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { getCachedMediaSync, fetchMediaByIdCached } from './resolveMedia';
 
-const mediaCache: Record<string, string> = {};
+function extractMediaId(url: string | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith('firestore-media:')) return url.split('firestore-media:')[1] || null;
+  if (url.startsWith('/api/media/')) return url.split('/api/media/')[1] || null;
+  return null;
+}
 
 export function useFirestoreMedia(url: string | undefined): string | undefined {
-  const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(
-    url?.startsWith('firestore-media:') ? undefined : url
-  );
+  const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(() => {
+    if (!url) return undefined;
+    const mediaId = extractMediaId(url);
+    if (mediaId) {
+      return getCachedMediaSync(mediaId);
+    }
+    return url;
+  });
 
   useEffect(() => {
     if (!url) {
@@ -15,55 +24,22 @@ export function useFirestoreMedia(url: string | undefined): string | undefined {
       return;
     }
 
-    if (url.startsWith('firestore-media:')) {
-      const mediaId = url.split(':')[1];
-      
-      if (mediaCache[mediaId]) {
-        setResolvedUrl(mediaCache[mediaId]);
+    const mediaId = extractMediaId(url);
+    if (mediaId) {
+      const cached = getCachedMediaSync(mediaId);
+      if (cached) {
+        setResolvedUrl(cached);
         return;
       }
-
-      const fetchMedia = async () => {
-        try {
-          const docRef = doc(db, 'media', mediaId);
-          const snap = await getDoc(docRef);
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data.url) {
-              mediaCache[mediaId] = data.url;
-              setResolvedUrl(data.url);
-            }
-          }
-        } catch (error) {
-          console.error("Error fetching media from Firestore:", error);
+      let active = true;
+      fetchMediaByIdCached(mediaId).then((res) => {
+        if (active && res) {
+          setResolvedUrl(res);
         }
+      });
+      return () => {
+        active = false;
       };
-      
-      fetchMedia();
-    } else if (url.startsWith('/api/media/')) {
-        // Also support fetching legacy /api/media/ IDs from Firestore directly for static sites
-        const mediaId = url.split('/api/media/')[1];
-        if (mediaCache[mediaId]) {
-          setResolvedUrl(mediaCache[mediaId]);
-          return;
-        }
-  
-        const fetchMedia = async () => {
-          try {
-            const docRef = doc(db, 'media', mediaId);
-            const snap = await getDoc(docRef);
-            if (snap.exists()) {
-              const data = snap.data();
-              if (data.url) {
-                mediaCache[mediaId] = data.url;
-                setResolvedUrl(data.url);
-              }
-            }
-          } catch (error) {
-            console.error("Error fetching media from Firestore:", error);
-          }
-        };
-        fetchMedia();
     } else {
       setResolvedUrl(url);
     }

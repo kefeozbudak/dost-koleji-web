@@ -1,7 +1,7 @@
 import ErrorBoundary from "../components/ErrorBoundary";
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, onSnapshot, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, limit, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { Lock, Settings } from 'lucide-react';
 import AssistantWidget from '../components/AssistantWidget';
@@ -24,8 +24,9 @@ import Header from '../components/Header';
 import Footer from '../components/Footer';
 import PopupOverlay from '../components/PopupOverlay';
 import { recordPageView } from '../lib/analytics';
-
+import { getCachedData, setCachedData, isCacheFresh, fetchWithDedup } from '../lib/cache';
 import { resolveMediaUrls } from '../lib/resolveMedia';
+import { captureCampaignAttribution, flushPendingSubmissions } from '../lib/scholarshipCampaign';
 import { motion, AnimatePresence } from 'framer-motion';
 
 function cleanBrokenImages(obj: any, contextTitle = ''): any {
@@ -54,259 +55,429 @@ function cleanBrokenImages(obj: any, contextTitle = ''): any {
   return obj;
 }
 
+function getNormalizedDocId(rawPath: string) {
+  const trimmed = rawPath === '/' ? 'home' : rawPath.replace(/^\/+|\/+$/g, '');
+  const docIdRaw = (trimmed || 'home').replace(/[^a-zA-Z0-9_-]/g, '-');
+  if (['is-basvuru-formu', 'is-basvurusu', 'is-basvuru', 'isbasvurusu', 'isbasvuru'].includes(docIdRaw)) {
+    return 'is-basvuru-formu';
+  }
+  if (['bursluluk-sinavi', 'bursluluk-basvurusu'].includes(docIdRaw)) {
+    return 'bursluluk-basvuru-formu';
+  }
+  return docIdRaw;
+}
+
+function getFallbackPageData(rawPath: string, cleanPath: string, docId: string) {
+  const fallbackPages: any = liveFallbackData.pages;
+  let matchedFallback = null;
+
+  if (docId && fallbackPages[docId]) {
+    matchedFallback = fallbackPages[docId];
+  } else {
+    const fallbackValues = Object.values(fallbackPages);
+    matchedFallback = fallbackValues.find((p: any) => p.path === cleanPath);
+  }
+
+  if (matchedFallback && !matchedFallback.isDeleted && !matchedFallback.isHidden) {
+    return cleanBrokenImages(matchedFallback);
+  }
+
+  const normalizedPath = cleanPath.toLowerCase();
+  if (rawPath === '/' || docId === 'home') {
+    return {
+      title: 'Ana Sayfa',
+      blocks: defaultHomePageData.filter(b => b.type !== 'header' && b.type !== 'footer')
+    };
+  }
+  if (docId === 'kulup-kayit-formu' || normalizedPath === '/kulup-kayit-formu') {
+    return {
+      title: 'Kulüp Kayıt Formu',
+      path: '/kulup-kayit-formu',
+      blocks: [
+        {
+          type: 'club_registration_form',
+          titlePart1: 'Dost Koleji',
+          titlePart2: 'Kulüp Kayıt',
+          subtitle: 'Lütfen Formu Eksiksiz Doldurunuz.'
+        }
+      ]
+    };
+  }
+  if (docId === 'duyurular' || normalizedPath === '/duyurular') {
+    return {
+      title: 'Duyurular',
+      blocks: defaultDuyurularData
+    };
+  }
+  if (docId === 'basarilarimiz' || normalizedPath === '/basarilarimiz') {
+    return {
+      title: 'Başarılarımız',
+      blocks: defaultBasarilarimizData
+    };
+  }
+  if (docId === 'hakkimizda' || normalizedPath === '/hakkimizda') {
+    return {
+      title: 'Hakkımızda',
+      blocks: defaultHakkimizdaData
+    };
+  }
+  if (docId === 'is-basvuru-formu' || docId === 'is-basvurusu' || ['/is-basvuru-formu', '/is-basvuru', '/is-basvurusu', '/isbasvurusu', '/isbasvuru'].includes(normalizedPath)) {
+    return {
+      title: 'İş Başvurusu',
+      path: '/is-basvurusu',
+      blocks: defaultCareerPageData
+    };
+  }
+  if (docId === 'egitim-sistemimiz' || normalizedPath === '/egitim-sistemimiz') {
+    return {
+      title: 'Eğitim Sistemimiz',
+      path: '/egitim-sistemimiz',
+      blocks: defaultEgitimSistemiData
+    };
+  }
+  if (docId === 'on-kayit' || normalizedPath === '/on-kayit') {
+    return {
+      title: 'Öğrenci Ön Kayıt Formu',
+      blocks: defaultPreRegistrationData
+    };
+  }
+  if (docId === 'bursluluk-basvuru-formu' || normalizedPath === '/bursluluk-basvuru-formu') {
+    return {
+      title: 'Bursluluk Sınav Başvurusu',
+      path: '/bursluluk-basvuru-formu',
+      blocks: defaultScholarshipPageData
+    };
+  }
+  if (docId === 'bursluluk-basvuru-onay' || normalizedPath === '/bursluluk-basvuru-onay') {
+    return {
+      title: 'Bursluluk Sınav Başvuru Onayı',
+      path: '/bursluluk-basvuru-onay',
+      blocks: defaultScholarshipConfirmationPageData
+    };
+  }
+  if (docId === 'lgs-puan-hesaplama' || normalizedPath === '/lgs-puan-hesaplama') {
+    return {
+      title: 'LGS Puan Hesaplama Modülü',
+      path: '/lgs-puan-hesaplama',
+      blocks: defaultLgsCalculatorData
+    };
+  }
+  return null;
+}
+
+function normalizeHomePageBlocks(rawPath: string, docId: string, data: any) {
+  if ((rawPath === '/' || docId === 'home') && data?.blocks) {
+    const hasVideo = data.blocks.some((b: any) => b.type === 'video');
+    if (!hasVideo) {
+      const statsIndex = data.blocks.findIndex((b: any) => b.type === 'stats');
+      const videoBlock = defaultHomePageData.find(b => b.type === 'video');
+      if (videoBlock) {
+        const newBlocks = [...data.blocks];
+        if (statsIndex !== -1) {
+          newBlocks.splice(statsIndex, 0, videoBlock);
+        } else {
+          newBlocks.push(videoBlock);
+        }
+        return { ...data, blocks: newBlocks };
+      }
+    }
+  }
+  return data;
+}
+
 export default function PublicView() {
   const location = useLocation();
   const navigate = useNavigate();
   const handleAdminLogin = () => navigate('/dadmin');
-  const [pageData, setPageData] = useState<any>(null);
-  const [headerData, setHeaderData] = useState<any>(null);
-  const [footerData, setFooterData] = useState<any>(null);
-  const [generalSettings, setGeneralSettings] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+
+  const initialRawPath = location.pathname;
+  const initialCleanPath = initialRawPath.startsWith('/') ? initialRawPath : '/' + initialRawPath;
+  const initialDocId = getNormalizedDocId(initialRawPath);
+
+  // 1. Stale-While-Revalidate: Initialize state directly from localStorage or liveFallbackData (0 second render)
+  const [headerData, setHeaderData] = useState<any>(() =>
+    getCachedData('settings_header', liveFallbackData.settings?.header || null)
+  );
+  const [footerData, setFooterData] = useState<any>(() =>
+    getCachedData('settings_footer', liveFallbackData.settings?.footer || null)
+  );
+  const [generalSettings, setGeneralSettings] = useState<any>(() =>
+    getCachedData('settings_general', liveFallbackData.settings?.general || null)
+  );
+  const [pageData, setPageData] = useState<any>(() => {
+    const cachedPage = getCachedData(`page_${initialDocId}`, null);
+    if (cachedPage) return cachedPage;
+    return getFallbackPageData(initialRawPath, initialCleanPath, initialDocId);
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    const cachedPage = getCachedData(`page_${initialDocId}`, null);
+    const fallbackPage = getFallbackPageData(initialRawPath, initialCleanPath, initialDocId);
+    return !cachedPage && !fallbackPage;
+  });
   const [user, setUser] = useState<any>(null);
 
+  // Capture ad attribution & flush any offline-queued submissions on boot and when network reconnects
   useEffect(() => {
+    captureCampaignAttribution();
+    flushPendingSubmissions();
+    const handleOnline = () => {
+      flushPendingSubmissions();
+    };
+    window.addEventListener('online', handleOnline);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    // Fetch Header, Footer and General settings
-    const fetchSettings = async () => {
-      try {
-        const headerDoc = await getDoc(doc(db, 'settings', 'header'));
-        if (headerDoc.exists()) {
-          setHeaderData(await resolveMediaUrls(headerDoc.data()));
-        } else if (liveFallbackData.settings.header) {
-          setHeaderData(liveFallbackData.settings.header);
-        }
-        
-        const footerDoc = await getDoc(doc(db, 'settings', 'footer'));
-        if (footerDoc.exists()) {
-          setFooterData(await resolveMediaUrls(footerDoc.data()));
-        } else if (liveFallbackData.settings.footer) {
-          setFooterData(liveFallbackData.settings.footer);
-        }
-
-        const generalDoc = await getDoc(doc(db, 'settings', 'general'));
-        if (generalDoc.exists()) {
-          const gData = await resolveMediaUrls(generalDoc.data());
-          setGeneralSettings(gData);
-          if (gData.siteTitle) document.title = gData.siteTitle;
-          if (gData.faviconUrl) {
-            let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
-            if (!link) {
-              link = document.createElement('link');
-              link.rel = 'icon';
-              document.head.appendChild(link);
-            }
-            link.href = gData.faviconUrl;
-          }
-        } else if (liveFallbackData.settings.general) {
-          setGeneralSettings(liveFallbackData.settings.general);
-        }
-      } catch (e) {
-        console.error("Error fetching settings:", e);
-        if (liveFallbackData.settings.header) setHeaderData(liveFallbackData.settings.header);
-        if (liveFallbackData.settings.footer) setFooterData(liveFallbackData.settings.footer);
-        if (liveFallbackData.settings.general) setGeneralSettings(liveFallbackData.settings.general);
-      }
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      unsubscribe();
     };
-    fetchSettings();
   }, []);
 
   useEffect(() => {
-    setLoading(true);
+    captureCampaignAttribution();
+  }, [location.search]);
+
+  useEffect(() => {
+    if (generalSettings?.siteTitle) document.title = generalSettings.siteTitle;
+    if (generalSettings?.faviconUrl) {
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.href = generalSettings.faviconUrl;
+    }
+  }, [generalSettings]);
+
+  useEffect(() => {
+    let isMounted = true;
     const rawPath = location.pathname;
     const cleanPath = rawPath.startsWith('/') ? rawPath : '/' + rawPath;
-    const docIdRaw = rawPath === '/' ? 'home' : rawPath.substring(1);
-    const docId = ['is-basvuru-formu', 'is-basvurusu', 'is-basvuru', 'isbasvurusu', 'isbasvuru'].includes(docIdRaw) ? 'is-basvuru-formu' : ['bursluluk-sinavi', 'bursluluk-basvurusu'].includes(docIdRaw) ? 'bursluluk-basvuru-formu' : docIdRaw;
+    const docId = getNormalizedDocId(rawPath);
 
-    const docRef = doc(db, 'pages', docId);
-    
-    const unsubscribeDoc = onSnapshot(docRef, async (docSnap) => {
-      if (docSnap.exists() && docSnap.data().blocks && docSnap.data().blocks.length > 0) {
-        let data = docSnap.data();
-        
-        // Resolve /api/media/ URLs to their actual Firestore URLs
-        data = await resolveMediaUrls(data);
-        
-        if (data.isDeleted || data.isHidden) {
-          setPageData(null);
-        } else {
-          // Auto-insert video block for homepage if missing
-          if ((rawPath === '/' || docId === 'home') && data.blocks) {
-             const hasVideo = data.blocks.some((b: any) => b.type === 'video');
-             if (!hasVideo) {
-                const statsIndex = data.blocks.findIndex((b: any) => b.type === 'stats');
-                const videoBlock = defaultHomePageData.find(b => b.type === 'video');
-                if (videoBlock) {
-                    let newBlocks = [...data.blocks];
-                    if (statsIndex !== -1) {
-                        newBlocks.splice(statsIndex, 0, videoBlock);
-                    } else {
-                        newBlocks.push(videoBlock);
-                    }
-                    data.blocks = newBlocks;
+    // 1. Instant Stale-While-Revalidate render from localStorage or fallback
+    const cachedPage = getCachedData(`page_${docId}`, null);
+    const fallbackPage = getFallbackPageData(rawPath, cleanPath, docId);
+    const isNegativeCached = isCacheFresh(`page_404_${docId}`, 10 * 60 * 1000);
+
+    if (cachedPage) {
+      setPageData(cachedPage);
+      setLoading(false);
+    } else if (fallbackPage) {
+      setPageData(fallbackPage);
+      setLoading(false);
+    } else if (isNegativeCached && !auth.currentUser) {
+      setPageData(null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    const isAdminUser = Boolean(auth.currentUser);
+    const needHeader = isAdminUser || !isCacheFresh('settings_header', 15 * 60 * 1000);
+    const needFooter = isAdminUser || !isCacheFresh('settings_footer', 15 * 60 * 1000);
+    const needGeneral = isAdminUser || !isCacheFresh('settings_general', 3 * 60 * 1000);
+    const needPage = isAdminUser || (!isNegativeCached && !isCacheFresh(`page_${docId}`, 15 * 60 * 1000));
+
+    if (!needHeader && !needFooter && !needGeneral && !needPage) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const syncShowcase = async () => {
+      let bootstrapHandledPage = false;
+
+      // Tier 1: Server-side RAM-cached bootstrap (protects daily free Firestore quota under 500-1000 concurrent ad visitors)
+      if (!isAdminUser && (needHeader || needFooter || needGeneral || needPage)) {
+        try {
+          const res = await fetchWithDedup(`bootstrap_${docId}`, async () => {
+            const resp = await fetch(`/api/public-bootstrap?docId=${encodeURIComponent(docId)}`);
+            if (!resp.ok) throw new Error(`HTTP_${resp.status}`);
+            return resp.json();
+          });
+
+          if (res?.ok && isMounted) {
+            if (res.header) {
+              const resolvedH = await resolveMediaUrls(res.header);
+              if (isMounted) {
+                setHeaderData(resolvedH);
+                setCachedData('settings_header', resolvedH);
+              }
+            }
+            if (res.footer) {
+              const resolvedF = await resolveMediaUrls(res.footer);
+              if (isMounted) {
+                setFooterData(resolvedF);
+                setCachedData('settings_footer', resolvedF);
+              }
+            }
+            if (res.general) {
+              const resolvedG = await resolveMediaUrls(res.general);
+              if (isMounted) {
+                setGeneralSettings(resolvedG);
+                setCachedData('settings_general', resolvedG);
+              }
+            }
+            if (Array.isArray(res.popups)) {
+              setCachedData('popups_active', res.popups);
+            }
+
+            if (res.page) {
+              if (res.page.__hidden) {
+                setPageData(null);
+                setLoading(false);
+                bootstrapHandledPage = true;
+              } else if (Array.isArray(res.page.blocks) && res.page.blocks.length > 0) {
+                let resolvedP = await resolveMediaUrls(res.page);
+                resolvedP = normalizeHomePageBlocks(rawPath, docId, resolvedP);
+                const cleaned = cleanBrokenImages(resolvedP);
+                if (isMounted) {
+                  setPageData(cleaned);
+                  setCachedData(`page_${docId}`, cleaned);
+                  setLoading(false);
                 }
-             }
+                bootstrapHandledPage = true;
+              }
+            }
+
+            window.dispatchEvent(new CustomEvent('dost:bootstrap-ready'));
+            if (bootstrapHandledPage || !needPage) {
+              return;
+            }
           }
-          setPageData(cleanBrokenImages(data));
-          setLoading(false);
-          return;
+        } catch (_) {
+          // Seamless fallback to direct Firestore SDK below if /api/public-bootstrap is unreachable
         }
       }
 
-      // If document wasn't found by direct ID (e.g. custom slug), query by path
+      // Tier 2: Direct Firestore fallback (or Admin live mode / custom slug lookup)
       try {
-        const q = query(collection(db, 'pages'), where('path', '==', cleanPath));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          let data = snapshot.docs[0].data();
+        if (needHeader || needFooter || needGeneral) {
+          const [headerDoc, footerDoc, generalDoc] = await Promise.all([
+            needHeader
+              ? fetchWithDedup('fb_settings_header', () => getDoc(doc(db, 'settings', 'header')))
+              : Promise.resolve(null),
+            needFooter
+              ? fetchWithDedup('fb_settings_footer', () => getDoc(doc(db, 'settings', 'footer')))
+              : Promise.resolve(null),
+            needGeneral
+              ? fetchWithDedup('fb_settings_general', () => getDoc(doc(db, 'settings', 'general')))
+              : Promise.resolve(null)
+          ]);
+
+          if (isMounted) {
+            if (headerDoc?.exists()) {
+              const resolvedHeader = await resolveMediaUrls(headerDoc.data());
+              if (isMounted) {
+                setHeaderData(resolvedHeader);
+                setCachedData('settings_header', resolvedHeader);
+              }
+            }
+            if (footerDoc?.exists()) {
+              const resolvedFooter = await resolveMediaUrls(footerDoc.data());
+              if (isMounted) {
+                setFooterData(resolvedFooter);
+                setCachedData('settings_footer', resolvedFooter);
+              }
+            }
+            if (generalDoc?.exists()) {
+              const gData = await resolveMediaUrls(generalDoc.data());
+              if (isMounted) {
+                setGeneralSettings(gData);
+                setCachedData('settings_general', gData);
+                window.dispatchEvent(new CustomEvent('dost:bootstrap-ready'));
+              }
+            }
+          }
+        }
+
+        if (!needPage || bootstrapHandledPage) return;
+
+        const docSnap = await fetchWithDedup(`fb_page_${docId}`, () =>
+          getDoc(doc(db, 'pages', docId))
+        );
+        if (!isMounted) return;
+
+        if (docSnap.exists() && docSnap.data().blocks && docSnap.data().blocks.length > 0) {
+          let data = await resolveMediaUrls(docSnap.data());
+          if (!isMounted) return;
+
           if (data.isDeleted || data.isHidden) {
             setPageData(null);
-          } else if (!data.blocks || data.blocks.length === 0) {
-            // Empty blocks in Firestore document -> Fall through to default page templates below
-          } else {
-            setPageData(cleanBrokenImages(data));
             setLoading(false);
             return;
           }
-        }
-      } catch (err) {
-        console.error("Query by path error:", err);
-      }
 
-      const applyFallback = () => {
-        const fallbackPages: any = liveFallbackData.pages;
-        let matchedFallback = null;
-        
-        if (docId && fallbackPages[docId]) {
-           matchedFallback = fallbackPages[docId];
-        } else {
-           const fallbackValues = Object.values(fallbackPages);
-           matchedFallback = fallbackValues.find((p: any) => p.path === cleanPath);
+          data = normalizeHomePageBlocks(rawPath, docId, data);
+          const cleaned = cleanBrokenImages(data);
+          setPageData(cleaned);
+          setCachedData(`page_${docId}`, cleaned);
+          setLoading(false);
+          return;
         }
-  
-        if (matchedFallback && !matchedFallback.isDeleted && !matchedFallback.isHidden) {
-            setPageData(cleanBrokenImages(matchedFallback));
-        } else {
-            // Default built-in fallbacks if no doc in Firestore AND no live fallback
-            const normalizedPath = cleanPath.toLowerCase();
-            if (rawPath === '/' || docId === 'home') {
-              setPageData({
-                title: 'Ana Sayfa',
-                blocks: defaultHomePageData.filter(b => b.type !== 'header' && b.type !== 'footer')
-              });
-            } else if (docId === 'kulup-kayit-formu' || normalizedPath === '/kulup-kayit-formu') {
-              setPageData({
-                title: 'Kulüp Kayıt Formu',
-                path: '/kulup-kayit-formu',
-                blocks: [
-                  {
-                    type: 'club_registration_form',
-                    titlePart1: 'Dost Koleji',
-                    titlePart2: 'Kulüp Kayıt',
-                    subtitle: 'Lütfen Formu Eksiksiz Doldurunuz.'
-                  }
-                ]
-              });
-            } else if (docId === 'duyurular' || normalizedPath === '/duyurular') {
-              setPageData({
-                title: 'Duyurular',
-                blocks: defaultDuyurularData
-              });
-            } else if (docId === 'basarilarimiz' || normalizedPath === '/basarilarimiz') {
-              setPageData({
-                title: 'Başarılarımız',
-                blocks: defaultBasarilarimizData
-              });
-            } else if (docId === 'hakkimizda' || normalizedPath === '/hakkimizda') {
-              setPageData({
-                title: 'Hakkımızda',
-                blocks: defaultHakkimizdaData
-              });
-            } else if (docId === 'is-basvuru-formu' || docId === 'is-basvurusu' || ['/is-basvuru-formu', '/is-basvuru', '/is-basvurusu', '/isbasvurusu', '/isbasvuru'].includes(normalizedPath)) {
-              setPageData({
-                title: 'İş Başvurusu',
-                path: '/is-basvurusu',
-                blocks: defaultCareerPageData
-              });
-            } else if (docId === 'egitim-sistemimiz' || normalizedPath === '/egitim-sistemimiz') {
-              setPageData({
-                title: 'Eğitim Sistemimiz',
-                path: '/egitim-sistemimiz',
-                blocks: defaultEgitimSistemiData
-              });
-            } else if (docId === 'on-kayit' || normalizedPath === '/on-kayit') {
-              setPageData({
-                title: 'Öğrenci Ön Kayıt Formu',
-                blocks: defaultPreRegistrationData
-              });
-            } else if (docId === 'bursluluk-basvuru-formu' || normalizedPath === '/bursluluk-basvuru-formu') {
-              setPageData({
-                title: 'Bursluluk Sınav Başvurusu',
-                path: '/bursluluk-basvuru-formu',
-                blocks: defaultScholarshipPageData
-              });
-            } else if (docId === 'bursluluk-basvuru-onay' || normalizedPath === '/bursluluk-basvuru-onay') {
-              setPageData({
-                title: 'Bursluluk Sınav Başvuru Onayı',
-                path: '/bursluluk-basvuru-onay',
-                blocks: defaultScholarshipConfirmationPageData
-              });
-            } else if (docId === 'lgs-puan-hesaplama' || normalizedPath === '/lgs-puan-hesaplama') {
-              setPageData({
-                title: 'LGS Puan Hesaplama Modülü',
-                path: '/lgs-puan-hesaplama',
-                blocks: defaultLgsCalculatorData
-              });
-            } else {
+
+        // Custom slug fallback query (limit 1)
+        try {
+          const q = query(collection(db, 'pages'), where('path', '==', cleanPath), limit(1));
+          const snapshot = await getDocs(q);
+          if (!isMounted) return;
+
+          if (!snapshot.empty) {
+            let data = await resolveMediaUrls(snapshot.docs[0].data());
+            if (!isMounted) return;
+
+            if (data.isDeleted || data.isHidden) {
               setPageData(null);
+              setLoading(false);
+              return;
+            } else if (data.blocks && data.blocks.length > 0) {
+              const cleaned = cleanBrokenImages(data);
+              setPageData(cleaned);
+              setCachedData(`page_${docId}`, cleaned);
+              setLoading(false);
+              return;
             }
-        }
-        setLoading(false);
-      };
-
-      // Apply fallback initially in case neither query succeeds
-      applyFallback();
-
-    }, (e) => {
-      console.error("PUBLIC_VIEW_ERROR:", e);
-      const fallbackPages: any = liveFallbackData.pages;
-      let matchedFallback = null;
-      if (docId && fallbackPages[docId]) {
-         matchedFallback = fallbackPages[docId];
-      } else {
-         const fallbackValues = Object.values(fallbackPages);
-         matchedFallback = fallbackValues.find((p: any) => p.path === cleanPath);
-      }
-
-      if (matchedFallback && !matchedFallback.isDeleted && !matchedFallback.isHidden) {
-          setPageData(cleanBrokenImages(matchedFallback));
-      } else {
-          if (rawPath === '/' || docId === 'home') {
-            setPageData({
-              title: 'Ana Sayfa',
-              blocks: defaultHomePageData.filter(b => b.type !== 'header' && b.type !== 'footer')
-            });
-          } else {
-            setPageData(null);
           }
-      }
-      setLoading(false);
-    });
+        } catch (err) {
+          console.error("Query by path error:", err);
+        }
 
-    return () => unsubscribeDoc();
+        if (isMounted) {
+          const fb = getFallbackPageData(rawPath, cleanPath, docId);
+          setPageData(fb);
+          if (fb) {
+            setCachedData(`page_${docId}`, fb);
+          } else {
+            // Negative cache 404 paths for 10 minutes so bots/typos don't re-query Firestore
+            setCachedData(`page_404_${docId}`, true);
+          }
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error("PUBLIC_VIEW_ERROR:", e);
+        if (isMounted) {
+          if (!cachedPage) {
+            setPageData(getFallbackPageData(rawPath, cleanPath, docId));
+          }
+          setLoading(false);
+        }
+      }
+    };
+
+    syncShowcase();
+
+    return () => {
+      isMounted = false;
+    };
   }, [location.pathname]);
 
   useEffect(() => {
     if (pageData && !pageData.isHidden && !pageData.isDeleted) {
       recordPageView(location.pathname, pageData.title || pageData.name || 'Sayfa');
     }
-  }, [location.pathname, pageData]);
+  }, [location.pathname, pageData?.title]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-surface-background text-slate-500">Sayfa yükleniyor...</div>;
 

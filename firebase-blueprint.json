@@ -2,100 +2,263 @@
   "entities": {
     "SiteSettings": {
       "title": "SiteSettings",
-      "description": "Global settings for the site",
+      "description": "Global showcase, header, footer, and assistant configurations",
       "type": "object",
       "properties": {
-        "title": { "type": "string", "maxLength": 100 },
-        "theme": { "type": "object" },
+        "siteTitle": { "type": "string", "maxLength": 200 },
+        "schoolName": { "type": "string", "maxLength": 200 },
         "maintenanceMode": { "type": "boolean" },
-        "announcement": { "type": "object" },
-        "megaMenu": { "type": "object" },
-        "footer": { "type": "object" }
+        "burslulukActive": { "type": "boolean" },
+        "burslulukStartDate": { "type": "string", "maxLength": 64 },
+        "burslulukEndDate": { "type": "string", "maxLength": 64 },
+        "burslulukInactiveMessage": { "type": "string", "maxLength": 2000 },
+        "burslulukCapacities": { "type": "object" },
+        "burslulukClosedSessions": { "type": "array" },
+        "updatedAt": { "type": "number" }
       }
     },
     "Page": {
       "title": "Page",
-      "description": "A dynamic page definition",
+      "description": "Dynamic CMS page definition and block tree",
       "type": "object",
       "properties": {
-        "path": { "type": "string", "maxLength": 100, "pattern": "^/.*" },
-        "title": { "type": "string", "maxLength": 100 },
-        "components": { "type": "array" },
-        "seo": { "type": "object" },
+        "path": { "type": "string", "maxLength": 150, "pattern": "^/.*" },
+        "title": { "type": "string", "maxLength": 200 },
+        "blocks": { "type": "array" },
+        "isDeleted": { "type": "boolean" },
+        "isHidden": { "type": "boolean" },
         "createdAt": { "type": "number" },
         "updatedAt": { "type": "number" }
       },
-      "required": ["path", "title", "createdAt", "updatedAt"]
+      "required": ["path", "title"]
     },
     "FormSubmission": {
       "title": "FormSubmission",
-      "description": "Form submissions",
+      "description": "Protected PII form submissions (scholarship, pre-registration, club, career, contact, assistant, newsletter)",
       "type": "object",
       "properties": {
-        "type": { "type": "string", "enum": ["contact", "club", "scholarship", "chat"] },
-        "data": { "type": "object" },
+        "type": {
+          "type": "string",
+          "maxLength": 64,
+          "enum": [
+            "bursluluk_basvuru_formu",
+            "bursluluk_exam_form",
+            "scholarship_form",
+            "bursluluk_form",
+            "pre_registration_form",
+            "club_registration_form",
+            "career_application",
+            "contact_form",
+            "quick_contact_form",
+            "assistant_form",
+            "newsletter",
+            "contact",
+            "club",
+            "scholarship",
+            "chat"
+          ]
+        },
+        "formName": { "type": "string", "maxLength": 150 },
+        "candidateNo": { "type": "string", "maxLength": 32 },
+        "ticketId": { "type": "string", "maxLength": 64 },
+        "status": {
+          "type": "string",
+          "maxLength": 32,
+          "enum": ["new", "pending", "read", "approved", "contacted", "cancelled", "archived"]
+        },
         "createdAt": { "type": "number" },
-        "status": { "type": "string", "enum": ["new", "read", "archived"] }
+        "data": { "type": "object" }
       },
-      "required": ["type", "data", "createdAt", "status"]
+      "required": ["type", "createdAt", "data"]
+    },
+    "ExamTicket": {
+      "title": "ExamTicket",
+      "description": "PII-isolated printable scholarship exam entry ticket with masked TC Kimlik",
+      "type": "object",
+      "properties": {
+        "candidateNo": { "type": "string", "maxLength": 32 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "maskedTc": { "type": "string", "maxLength": 16 },
+        "grade": { "type": "string", "maxLength": 64 },
+        "campus": { "type": "string", "maxLength": 120 },
+        "examSession": { "type": "string", "maxLength": 64 },
+        "examDate": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["candidateNo", "studentName", "maskedTc", "grade", "campus", "examSession", "createdAt"]
+    },
+    "LgsReport": {
+      "title": "LgsReport",
+      "description": "Protected LGS score calculator submission",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "maxLength": 40, "enum": ["lgs_calculator"] },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "parentName": { "type": "string", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "school": { "type": "string", "maxLength": 160 },
+        "results": { "type": "object" },
+        "subjects": { "type": "array" },
+        "createdAt": { "type": "number" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["type", "studentName", "phone", "createdAt"]
     },
     "User": {
       "title": "User",
-      "description": "User profile with RBAC",
+      "description": "Admin user profile and RBAC permissions",
       "type": "object",
       "properties": {
         "email": { "type": "string", "maxLength": 150 },
-        "role": { "type": "string", "enum": ["super_admin", "editor", "scholarship_admin", "club_admin", "restricted"] },
+        "role": {
+          "type": "string",
+          "maxLength": 32,
+          "enum": ["super_admin", "editor", "scholarship_admin", "club_admin", "restricted"]
+        },
+        "allowedPages": { "type": "array" },
         "createdAt": { "type": "number" }
       },
       "required": ["email", "role", "createdAt"]
     },
     "Media": {
       "title": "Media",
-      "description": "Uploaded media assets",
+      "description": "Uploaded media asset reference",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "url": { "type": "string" },
-        "createdAt": { "type": "number" }
-      }
+        "name": { "type": "string", "maxLength": 255 },
+        "url": { "type": "string", "maxLength": 1000000 },
+        "size": { "type": "number" },
+        "type": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "url"]
     },
     "Popup": {
       "title": "Popup",
-      "description": "Popup campaign configurations",
+      "description": "Promotional popup campaign configuration",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "status": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" }
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "maxLength": 20, "enum": ["AKTİF", "AKTIF", "PASİF", "PASIF", "TASLAK"] },
+        "title": { "type": "string", "maxLength": 300 },
+        "description": { "type": "string", "maxLength": 2000 }
+      },
+      "required": ["name", "status"]
+    },
+    "TrafficLog": {
+      "title": "TrafficLog",
+      "description": "Session-level anonymized visitor analytics log",
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "maxLength": 200 },
+        "pageTitle": { "type": "string", "maxLength": 200 },
+        "timestamp": { "type": "number" },
+        "dateStr": { "type": "string", "maxLength": 16 },
+        "hour": { "type": "number" },
+        "device": { "type": "string", "maxLength": 32 },
+        "browser": { "type": "string", "maxLength": 32 },
+        "referrer": { "type": "string", "maxLength": 64 },
+        "city": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["path", "pageTitle", "timestamp", "dateStr", "hour", "device", "browser", "referrer", "city"]
+    },
+    "TrafficDaily": {
+      "title": "TrafficDaily",
+      "description": "Distributed daily page-view and unique-visitor shard counter",
+      "type": "object",
+      "properties": {
+        "dateStr": { "type": "string", "maxLength": 16 },
+        "views": { "type": "number" },
+        "visitors": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["dateStr", "views", "visitors"]
+    },
+    "TrafficPage": {
+      "title": "TrafficPage",
+      "description": "Distributed per-page view shard counter",
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "maxLength": 200 },
+        "title": { "type": "string", "maxLength": 200 },
+        "views": { "type": "number" }
+      },
+      "required": ["path", "title", "views"]
+    },
+    "TrafficSummary": {
+      "title": "TrafficSummary",
+      "description": "Aggregated traffic summary metadata",
+      "type": "object",
+      "properties": {
+        "totalViews": { "type": "number" },
+        "totalVisitors": { "type": "number" },
+        "avgDurationSec": { "type": "number" },
+        "bounceRate": { "type": "number" },
+        "lastUpdated": { "type": "number" }
+      }
+    },
+    "ConnectionProbe": {
+      "title": "ConnectionProbe",
+      "description": "Startup Firestore connectivity probe document",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" }
       }
     }
   },
   "firestore": {
-    "settings/{documentId}": {
+    "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/SiteSettings" },
-      "description": "Site global settings"
+      "description": "Public showcase settings (get) and admin configuration (write)"
     },
-    "pages/{pageId}": {
+    "/pages/{pageId}": {
       "schema": { "$ref": "#/entities/Page" },
-      "description": "Dynamic pages"
+      "description": "Dynamic CMS pages"
     },
-    "forms/{formId}": {
+    "/forms/{formId}": {
       "schema": { "$ref": "#/entities/FormSubmission" },
-      "description": "Form submissions"
+      "description": "PII form submissions (write-only for public, full access for verified admins)"
     },
-    "users/{userId}": {
+    "/exam_tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/ExamTicket" },
+      "description": "PII-isolated printable scholarship exam entry cards (masked TC, unguessable ID)"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/LgsReport" },
+      "description": "LGS calculator submissions (write-only for public, read/manage for verified admins)"
+    },
+    "/users/{userEmail}": {
       "schema": { "$ref": "#/entities/User" },
-      "description": "User profiles and RBAC"
+      "description": "Admin RBAC directory (read by self/admin, write by super_admin only)"
     },
-    "media/{mediaId}": {
+    "/media/{mediaId}": {
       "schema": { "$ref": "#/entities/Media" },
-      "description": "Uploaded media items"
+      "description": "Uploaded media items (single get for rendering, list/write for admins)"
     },
-    "popups/{popupId}": {
+    "/popups/{popupId}": {
       "schema": { "$ref": "#/entities/Popup" },
-      "description": "Popup campaign configurations"
+      "description": "Promotional popups (active-only read for public, full access for admins)"
+    },
+    "/traffic_logs/{logId}": {
+      "schema": { "$ref": "#/entities/TrafficLog" },
+      "description": "Session visitor analytics logs (create-only for public, read for admins)"
+    },
+    "/traffic_daily/{shardId}": {
+      "schema": { "$ref": "#/entities/TrafficDaily" },
+      "description": "Sharded daily traffic counters (write-only increment for public, read for admins)"
+    },
+    "/traffic_pages/{shardId}": {
+      "schema": { "$ref": "#/entities/TrafficPage" },
+      "description": "Sharded page traffic counters (write-only increment for public, read for admins)"
+    },
+    "/traffic_stats/{statId}": {
+      "schema": { "$ref": "#/entities/TrafficSummary" },
+      "description": "Traffic summary metadata (admin-managed)"
+    },
+    "/test/{probeId}": {
+      "schema": { "$ref": "#/entities/ConnectionProbe" },
+      "description": "Read-only connection probe"
     }
   }
 }

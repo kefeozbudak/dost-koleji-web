@@ -1,10 +1,11 @@
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 import { useState, useEffect, useRef } from 'react';
-import { collection, getDocs, onSnapshot, query, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { compressImageFile } from '../lib/imageCompressor';
 import { Image as ImageIcon, Search, X, Upload, AlertCircle } from 'lucide-react';
+import { useAdminStore } from '../store/adminStore';
 
 interface MediaPickerModalProps {
   isOpen: boolean;
@@ -56,37 +57,19 @@ const compressImage = (file: File, maxWidth = 1600, maxHeight = 1600, quality = 
 };
 
 export default function MediaPickerModal({ isOpen, onClose, onSelect }: MediaPickerModalProps) {
-  const [mediaItems, setMediaItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { media: mediaItems, mediaLoaded, ensureMediaListener } = useAdminStore();
+  const loading = !mediaLoaded;
   const [uploading, setUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchMedia = async () => {
-    try {
-      const q = query(collection(db, 'media'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const items = snapshot.docs.map(doc => ({ 
-         id: doc.id, 
-         ...doc.data()
-      }));
-      setMediaItems(items);
-    } catch (err) {
-      console.error("Error fetching media", err);
-      setErrorMsg("Görseller yüklenirken hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (isOpen) {
       setErrorMsg(null);
-      setLoading(true);
-      fetchMedia();
+      ensureMediaListener();
     }
-  }, [isOpen]);
+  }, [isOpen, ensureMediaListener]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -125,16 +108,12 @@ export default function MediaPickerModal({ isOpen, onClose, onSelect }: MediaPic
           setErrorMsg(`"${file.name}" yüklenirken hata oluştu: ${innerErr.message || "Bilinmeyen Hata"}`);
         }
       }
-      
-      
-      
     } catch (err: any) {
       console.error("Error uploading files", err);
       setErrorMsg(`Dosya yüklenirken bir hata oluştu: ${err.message || 'Bilinmeyen Hata'}`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      await fetchMedia();
     }
   };
 

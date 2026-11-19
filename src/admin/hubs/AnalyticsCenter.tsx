@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { db } from '../../lib/firebase';
-import { collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, limit, setDoc } from 'firebase/firestore';
-import { seedBaselineTrafficIfNeeded, DailyTraffic, TrafficLog, PageStat } from '../../lib/analytics';
+import { seedBaselineTrafficIfNeeded } from '../../lib/analytics';
+import { useAdminStore } from '../../store/adminStore';
 import {
   Users,
   Eye,
@@ -21,7 +20,6 @@ import {
   MapPin,
   ExternalLink,
   Layers,
-  Sparkles,
   RotateCcw,
   Check
 } from 'lucide-react';
@@ -40,107 +38,29 @@ import {
 export default function AnalyticsCenter() {
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'today' | 'all'>('30d');
   const [chartType, setChartType] = useState<'area' | 'bar'>('area');
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Firestore Data State
-  const [summaryData, setSummaryData] = useState<any>(null);
-  const [dailyData, setDailyData] = useState<DailyTraffic[]>([]);
-  const [pagesData, setPagesData] = useState<PageStat[]>([]);
-  const [recentLogs, setRecentLogs] = useState<TrafficLog[]>([]);
-  const [activeUsersCount, setActiveUsersCount] = useState(14);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Initialize and Fetch Analytics Data
+  const {
+    trafficSummary: summaryData,
+    trafficDaily: dailyData,
+    trafficPages: pagesData,
+    trafficLogs: recentLogs,
+    analyticsLoaded,
+    ensureAnalyticsListeners
+  } = useAdminStore();
+
   useEffect(() => {
-    let isMounted = true;
-    const initData = async () => {
-      setLoading(true);
-      try {
-        await seedBaselineTrafficIfNeeded();
-        if (isMounted) {
-          await fetchAllAnalytics();
-        }
-      } catch (err) {
-        console.error("Init analytics error:", err);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-    initData();
+    ensureAnalyticsListeners();
+  }, [ensureAnalyticsListeners]);
 
-    // Listen to real-time recent logs and calculate real active online count
-    const logsQuery = query(collection(db, 'traffic_logs'), orderBy('timestamp', 'desc'), limit(30));
-    const unsubscribe = onSnapshot(
-      logsQuery,
-      (snapshot) => {
-        if (!isMounted) return;
-        const logs: TrafficLog[] = [];
-        snapshot.forEach((doc) => {
-          logs.push({ id: doc.id, ...doc.data() } as TrafficLog);
-        });
-        if (logs.length > 0) {
-          setRecentLogs(logs);
-
-          // Calculate real active users (logged within last 5 minutes)
-          const fiveMinsAgo = Date.now() - 5 * 60 * 1000;
-          const activeIn5Mins = logs.filter((l) => l.timestamp && l.timestamp > fiveMinsAgo);
-          
-          if (activeIn5Mins.length > 0) {
-            setActiveUsersCount(activeIn5Mins.length);
-          } else {
-            // Minimal active floor if site is open by current user
-            setActiveUsersCount(1);
-          }
-        }
-      },
-      (err) => {
-        console.warn("Realtime traffic logs listener notice:", err);
-      }
-    );
-
-    return () => {
-      isMounted = false;
-      unsubscribe();
-    };
-  }, []);
-
-  const fetchAllAnalytics = async () => {
-    try {
-      setRefreshing(true);
-
-      // 1. Fetch Summary
-      const summarySnap = await getDoc(doc(db, 'traffic_stats', 'summary'));
-      if (summarySnap.exists()) {
-        setSummaryData(summarySnap.data());
-      }
-
-      // 2. Fetch Daily Traffic Records
-      const dailyQuery = query(collection(db, 'traffic_daily'), orderBy('dateStr', 'asc'));
-      const dailySnap = await getDocs(dailyQuery);
-      const dailies: DailyTraffic[] = [];
-      dailySnap.forEach((doc) => {
-        dailies.push(doc.data() as DailyTraffic);
-      });
-      setDailyData(dailies);
-
-      // 3. Fetch Top Pages Stats
-      const pagesSnap = await getDocs(collection(db, 'traffic_pages'));
-      const pList: PageStat[] = [];
-      pagesSnap.forEach((doc) => {
-        pList.push(doc.data() as PageStat);
-      });
-      pList.sort((a, b) => b.views - a.views);
-      setPagesData(pList);
-    } catch (err) {
-      console.error("Error fetching analytics:", err);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const activeUsersCount = useMemo(() => {
+    if (!recentLogs || recentLogs.length === 0) return 1;
+    const fiveMinsAgo = Date.now() - 5 * 60 * 1000;
+    const activeIn5Mins = recentLogs.filter((l) => l.timestamp && l.timestamp > fiveMinsAgo);
+    return activeIn5Mins.length > 0 ? activeIn5Mins.length : 1;
+  }, [recentLogs]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -264,20 +184,12 @@ export default function AnalyticsCenter() {
     }
   };
 
-  // Re-seed analytics baseline
+  // Re-seed analytics baseline only when explicitly requested
   const handleResetData = async () => {
     if (!window.confirm("Analiz verilerini varsayılan seviyeye sıfırlamak istediğinize emin misiniz?")) return;
     try {
       setRefreshing(true);
-      await setDoc(doc(db, 'traffic_stats', 'summary'), {
-        totalViews: 14850,
-        totalVisitors: 6420,
-        avgDurationSec: 168,
-        bounceRate: 32.4,
-        lastUpdated: Date.now()
-      });
-      await seedBaselineTrafficIfNeeded();
-      await fetchAllAnalytics();
+      await seedBaselineTrafficIfNeeded(true);
       showToast("Trafik verileri başarıyla güncellendi.");
     } catch (e) {
       showToast("Sıfırlama sırasında hata oluştu.");
@@ -286,7 +198,7 @@ export default function AnalyticsCenter() {
     }
   };
 
-  if (loading) {
+  if (!analyticsLoaded && dailyData.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto bg-slate-50 p-6 font-sans text-slate-800 flex flex-col items-center justify-center min-h-[500px]">
         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -335,7 +247,10 @@ export default function AnalyticsCenter() {
 
             <button
               type="button"
-              onClick={fetchAllAnalytics}
+              onClick={() => {
+                ensureAnalyticsListeners();
+                showToast("Veriler gerçek zamanlı olarak senkronize edildi.");
+              }}
               disabled={refreshing}
               className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer notranslate"
               translate="no"

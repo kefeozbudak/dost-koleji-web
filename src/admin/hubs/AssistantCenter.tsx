@@ -3,6 +3,8 @@ import { Bot, Save, Plus, Trash2, Settings, ToggleLeft, ToggleRight, Edit2, X, A
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { withTimeout } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
+import { useAdminStore } from '../../store/adminStore';
+import { setCachedData } from '../../lib/cache';
 
 interface FormField {
   label: string;
@@ -35,8 +37,9 @@ const defaultInitialForms: FormItem[] = [
 ];
 
 export default function AssistantCenter() {
+  const { assistantSettings, settingsLoaded, ensureSettingsListeners } = useAdminStore();
   const [activeTab, setActiveTab] = useState<'knowledge' | 'forms' | 'settings'>('knowledge');
-  const [loading, setLoading] = useState(true);
+  const loading = !settingsLoaded;
   const [saving, setSaving] = useState(false);
   
   // Settings States
@@ -51,67 +54,61 @@ export default function AssistantCenter() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const docRef = doc(db, 'settings', 'assistant');
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setKnowledgeBase(data.knowledgeBase || '');
-          setIsActive(data.isActive ?? true);
-          setWhatsapp(data.whatsapp || '');
-          setEmail(data.email || '');
-          if (data.forms && Array.isArray(data.forms) && data.forms.length > 0) {
-            // Normalize legacy array or string fields
-            const normalized = data.forms.map((f: any, idx: number) => ({
-              id: f.id || `form-${idx}`,
-              name: f.name || 'İletişim Formu',
-              active: f.active ?? true,
-              fields: Array.isArray(f.fields) 
-                ? f.fields.map((field: any) => {
-                    if (typeof field === 'string') {
-                      const lower = field.toLowerCase();
-                      if (lower.includes('kampüs')) {
-                        return { label: field, key: field, type: 'select', options: ['Ümitköy Kampüsü', 'Oran Kampüsü', 'Eryaman Kampüsü'], required: true };
-                      }
-                      if (lower.includes('kademe') || lower.includes('eğitim')) {
-                        return { label: field, key: field, type: 'select', options: ['Anaokulu', 'İlkokul', 'Ortaokul', 'Lise'], required: true };
-                      }
-                      if (lower.includes('telefon') || lower.includes('tel')) {
-                        return { label: field, key: field, type: 'tel', required: true };
-                      }
-                      if (lower.includes('mesaj') || lower.includes('not')) {
-                        return { label: field, key: field, type: 'textarea', required: false };
-                      }
-                      return { label: field, key: field, type: 'text', required: true };
-                    }
-                    return field;
-                  })
-                : []
-            }));
-            setForms(normalized);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching assistant settings:", error);
-      } finally {
-        setLoading(false);
+    ensureSettingsListeners();
+  }, [ensureSettingsListeners]);
+
+  useEffect(() => {
+    if (assistantSettings) {
+      const data = assistantSettings;
+      setKnowledgeBase(data.knowledgeBase || '');
+      setIsActive(data.isActive ?? true);
+      setWhatsapp(data.whatsapp || '');
+      setEmail(data.email || '');
+      if (data.forms && Array.isArray(data.forms) && data.forms.length > 0) {
+        const normalized = data.forms.map((f: any, idx: number) => ({
+          id: f.id || `form-${idx}`,
+          name: f.name || 'İletişim Formu',
+          active: f.active ?? true,
+          fields: Array.isArray(f.fields) 
+            ? f.fields.map((field: any) => {
+                if (typeof field === 'string') {
+                  const lower = field.toLowerCase();
+                  if (lower.includes('kampüs')) {
+                    return { label: field, key: field, type: 'select', options: ['Ümitköy Kampüsü', 'Oran Kampüsü', 'Eryaman Kampüsü'], required: true };
+                  }
+                  if (lower.includes('kademe') || lower.includes('eğitim')) {
+                    return { label: field, key: field, type: 'select', options: ['Anaokulu', 'İlkokul', 'Ortaokul', 'Lise'], required: true };
+                  }
+                  if (lower.includes('telefon') || lower.includes('tel')) {
+                    return { label: field, key: field, type: 'tel', required: true };
+                  }
+                  if (lower.includes('mesaj') || lower.includes('not')) {
+                    return { label: field, key: field, type: 'textarea', required: false };
+                  }
+                  return { label: field, key: field, type: 'text', required: true };
+                }
+                return field;
+              })
+            : []
+        }));
+        setForms(normalized);
       }
-    };
-    fetchSettings();
-  }, []);
+    }
+  }, [assistantSettings]);
 
   const handleSave = async (updatedForms?: FormItem[]) => {
     setSaving(true);
     const formsToSave = updatedForms || forms;
     try {
-      await withTimeout(setDoc(doc(db, 'settings', 'assistant'), {
+      const payload = {
         knowledgeBase,
         isActive,
         whatsapp,
         email,
         forms: formsToSave
-      }, { merge: true }));
+      };
+      await withTimeout(setDoc(doc(db, 'settings', 'assistant'), payload, { merge: true }));
+      setCachedData('settings_assistant', payload);
       alert('Tüm ayarlar ve formlar başarıyla kaydedildi!');
     } catch (error) {
       console.error("Error saving assistant settings:", error);

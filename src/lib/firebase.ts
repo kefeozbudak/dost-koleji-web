@@ -107,7 +107,7 @@ export function handleFirestoreError(
   error: unknown,
   operationType: OperationType,
   path: string | null,
-) {
+): never {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -126,8 +126,26 @@ export function handleFirestoreError(
     path,
   };
   console.error("Firestore Error: ", JSON.stringify(errInfo));
-  return new Error(JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
 }
+
+async function testConnection() {
+  if (typeof window === "undefined") return;
+  try {
+    const lastChecked = Number(localStorage.getItem("dost_fb_conn_checked_at") || "0");
+    if (Date.now() - lastChecked < 24 * 60 * 60 * 1000) return;
+    localStorage.setItem("dost_fb_conn_checked_at", String(Date.now()));
+    await getDocFromServer(doc(db, "test", "connection"));
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("the client is offline")
+    ) {
+      console.error("Please check your Firebase configuration.");
+    }
+  }
+}
+testConnection();
 
 export const withTimeout = <T>(promise: Promise<T>, ms: number = 10000): Promise<T> => {
   return new Promise((resolve, reject) => {

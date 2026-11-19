@@ -1,9 +1,10 @@
 import { resolveMediaUrls } from '../../lib/resolveMedia';
-import React, { useState, useEffect, useRef } from 'react';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, withTimeout } from '../../lib/firebase';
 import { extractAndSaveBase64Images } from '../../lib/imageCompressor';
 import { PopupData } from '../../components/PopupOverlay';
+import { useAdminStore } from '../../store/adminStore';
 
 const DEFAULT_POPUPS: PopupData[] = [
   {
@@ -87,6 +88,7 @@ const DEFAULT_POPUPS: PopupData[] = [
 ];
 
 export default function PopupCenter() {
+  const { pages: rawPages, popups: storePopups, popupsLoaded, ensurePopupsListener } = useAdminStore();
   const [popups, setPopups] = useState<PopupData[]>([]);
   const [selectedPopup, setSelectedPopup] = useState<PopupData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -94,51 +96,42 @@ export default function PopupCenter() {
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [saving, setSaving] = useState(false);
   const [showLivePreviewModal, setShowLivePreviewModal] = useState(false);
-  const [pagesList, setPagesList] = useState<{ id: string; title: string; path: string }[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch Available Pages for Button Link Selector
+  const pagesList = useMemo(() => {
+    const pages = rawPages.filter((p: any) => !p.isDeleted);
+    const defaultPages = [
+      { id: 'home', title: 'Ana Sayfa', path: '/' },
+      { id: 'on-kayit', title: 'Öğrenci Ön Kayıt', path: '/on-kayit' },
+      { id: 'kulup-kayit-formu', title: 'Kulüp Kayıt Formu', path: '/kulup-kayit-formu' },
+      { id: 'is-basvuru-formu', title: 'İş Başvuru Formu', path: '/is-basvuru-formu' },
+      { id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' },
+      { id: 'bursluluk-basvuru-formu', title: 'Bursluluk Sınav Başvurusu', path: '/bursluluk-basvuru-formu' },
+      { id: 'bursluluk-basvuru-onay', title: 'Bursluluk Sınav Başvuru Onayı', path: '/bursluluk-basvuru-onay' },
+      { id: 'lgs-puan-hesaplama', title: 'LGS Puan Hesaplama Modülü', path: '/lgs-puan-hesaplama' },
+      { id: 'duyurular', title: 'Duyurular', path: '/duyurular' }
+    ];
+
+    const map = new Map();
+    defaultPages.forEach((dp) => map.set(dp.path, dp));
+    pages.forEach((p: any) => {
+      const path = p.path || `/${p.id}`;
+      map.set(path, { id: p.id, title: p.title || p.id, path });
+    });
+
+    return Array.from(map.values());
+  }, [rawPages]);
+
   useEffect(() => {
-    const fetchPages = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'pages'));
-        const pages = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as any))
-          .filter((p) => !p.isDeleted);
-        
-        const defaultPages = [
-          { id: 'home', title: 'Ana Sayfa', path: '/' },
-          { id: 'on-kayit', title: 'Öğrenci Ön Kayıt', path: '/on-kayit' },
-          { id: 'kulup-kayit-formu', title: 'Kulüp Kayıt Formu', path: '/kulup-kayit-formu' },
-          { id: 'is-basvuru-formu', title: 'İş Başvuru Formu', path: '/is-basvuru-formu' },
-          { id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' },
-          { id: 'bursluluk-basvuru-formu', title: 'Bursluluk Sınav Başvurusu', path: '/bursluluk-basvuru-formu' },
-          { id: 'bursluluk-basvuru-onay', title: 'Bursluluk Sınav Başvuru Onayı', path: '/bursluluk-basvuru-onay' },
-          { id: 'lgs-puan-hesaplama', title: 'LGS Puan Hesaplama Modülü', path: '/lgs-puan-hesaplama' },
-          { id: 'duyurular', title: 'Duyurular', path: '/duyurular' }
-        ];
+    ensurePopupsListener();
+  }, [ensurePopupsListener]);
 
-        const map = new Map();
-        defaultPages.forEach((dp) => map.set(dp.path, dp));
-        pages.forEach((p) => {
-          const path = p.path || `/${p.id}`;
-          map.set(path, { id: p.id, title: p.title || p.id, path });
-        });
-
-        setPagesList(Array.from(map.values()));
-      } catch (e) {
-        console.error('Error fetching pages:', e);
-      }
-    };
-    fetchPages();
-  }, []);
-
-  // Fetch & Seed Popups Realtime
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'popups'), async (snapshot) => {
-      if (snapshot.empty) {
+    if (!popupsLoaded) return;
+    if (storePopups.length === 0) {
+      const seedDefaults = async () => {
         try {
           for (const popup of DEFAULT_POPUPS) {
             await setDoc(doc(db, 'popups', popup.id), popup);
@@ -146,20 +139,17 @@ export default function PopupCenter() {
         } catch (e) {
           console.error('Error seeding default popups:', e);
         }
-      } else {
-        const fetched = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as PopupData));
-        setPopups(fetched);
-
-        setSelectedPopup((current) => {
-          if (!current) return fetched[0] || null;
-          const match = fetched.find((p) => p.id === current.id);
-          return match ? { ...match, ...current } : current;
-        });
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
+      };
+      seedDefaults();
+    } else {
+      setPopups(storePopups as PopupData[]);
+      setSelectedPopup((current) => {
+        if (!current) return (storePopups[0] as PopupData) || null;
+        const match = storePopups.find((p: any) => p.id === current.id);
+        return match ? { ...match, ...current } : current;
+      });
+    }
+  }, [storePopups, popupsLoaded]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);

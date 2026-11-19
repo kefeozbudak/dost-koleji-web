@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { compressImageFile } from '../../lib/imageCompressor';
 import { Image as ImageIcon, Search, Trash2, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { useAdminStore } from '../../store/adminStore';
 
 const readFileAsBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -49,8 +50,8 @@ const compressImage = (file: File, maxWidth = 1600, maxHeight = 1600, quality = 
 };
 
 export default function MediaCenter() {
-  const [mediaItems, setMediaItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { media: mediaItems, mediaLoaded, ensureMediaListener } = useAdminStore();
+  const loading = !mediaLoaded;
   const [uploading, setUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -61,26 +62,9 @@ export default function MediaCenter() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchMedia = async () => {
-    try {
-      const q = query(collection(db, 'media'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const items = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data()
-      }));
-      setMediaItems(items);
-    } catch (err) {
-      console.error("Error fetching media in MediaCenter:", err);
-      setError("Medyalar yüklenirken hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchMedia();
-  }, []);
+    ensureMediaListener();
+  }, [ensureMediaListener]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -109,7 +93,6 @@ export default function MediaCenter() {
            setError(`"${file.name}" yüklenirken hata: ${innerErr.message || 'Bilinmeyen'}`);
         }
       }
-      await fetchMedia();
     } catch (err: any) {
       console.error("Error uploading files", err);
       setError("Dosya yüklenirken bir hata oluştu: " + (err.message || ''));
@@ -132,7 +115,6 @@ export default function MediaCenter() {
         await deleteDoc(doc(db, 'media', deleteDialog.id));
         setSelectedIds(prev => prev.filter(sId => sId !== deleteDialog.id));
       }
-      await fetchMedia();
     } catch (err) {
       console.error("Error deleting files", err);
       setError("Dosyalar silinirken bir hata oluştu.");

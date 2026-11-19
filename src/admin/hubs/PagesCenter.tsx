@@ -1,21 +1,37 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, query, orderBy, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { defaultPreRegistrationData } from '../../lib/defaultData';
 import { FileText, Plus, Trash2, Eye, EyeOff, Edit, ExternalLink, Settings, CheckCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAdminStore } from '../../store/adminStore';
+import { setCachedData, removeCachedData } from '../../lib/cache';
 
 export default function PagesCenter() {
-  const [pages, setPages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { pages: rawPages, pagesLoaded } = useAdminStore();
+  const [manualLoading, setManualLoading] = useState(false);
+  const loading = !pagesLoaded || manualLoading;
+  const setLoading = setManualLoading;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newPage, setNewPage] = useState({ title: '', path: '' });
   const [creating, setCreating] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const navigate = useNavigate();
 
+  const pages = useMemo(() => {
+    const active = rawPages.filter((p: any) => !p.isDeleted);
+    return [...active].sort((a: any, b: any) => {
+      const getTime = (val: any) => {
+        if (!val) return 0;
+        if (typeof val === 'number') return val;
+        if (val.toMillis) return val.toMillis();
+        if (val.seconds) return val.seconds * 1000;
+        return new Date(val).getTime() || 0;
+      };
+      return getTime(b.createdAt) - getTime(a.createdAt);
+    });
+  }, [rawPages]);
 
-  
   const updateHomePageUrls = async () => {
     try {
       const docRef = doc(db, 'pages', 'home');
@@ -114,14 +130,12 @@ export default function PagesCenter() {
           path: '/lgs-puan-hesaplama',
           blocks: defaultLgsCalculatorData
         },
-        
         'kayit-fiyatlari': {
           title: 'Kayıt Fiyatları',
           path: '/kayit-fiyatlari',
           blocks: defaultTuitionFeesData
         },
         'kulup-kayit-formu': {
-
           title: 'Kulüp Kayıt Formu',
           path: '/kulup-kayit-formu',
           blocks: [
@@ -135,12 +149,12 @@ export default function PagesCenter() {
         }
       };
 
+      const existingMap = new Map(rawPages.map((p: any) => [p.id, p]));
       for (const [id, page] of Object.entries(defaultPagesMap)) {
         try {
-          const docRef = doc(db, 'pages', id);
-          const docSnap = await getDoc(docRef);
-          if (!docSnap.exists() || !docSnap.data()?.blocks || docSnap.data().blocks.length === 0 || docSnap.data()?.isDeleted) {
-            await setDoc(docRef, {
+          const existing = existingMap.get(id);
+          if (!existing || !existing.blocks || existing.blocks.length === 0 || existing.isDeleted) {
+            await setDoc(doc(db, 'pages', id), {
               title: page.title,
               path: page.path,
               isDeleted: false,
@@ -159,94 +173,8 @@ export default function PagesCenter() {
     }
   };
 
-  const fetchPages = async () => {
-    setLoading(true);
-    try {
-      const snapshot = await getDocs(collection(db, 'pages'));
-      let fetchedPages = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      
-      // If after fetching we have 0 non-deleted pages, try seeding defaults
-      if (fetchedPages.filter((p: any) => !p.isDeleted).length === 0) {
-        try { await seedAllDefaults(); } catch (err) { console.error('Seed error', err); }
-        const snap2 = await getDocs(collection(db, 'pages'));
-        fetchedPages = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-      }
-
-      fetchedPages.sort((a: any, b: any) => {
-        const getTime = (val: any) => {
-          if (!val) return 0;
-          if (typeof val === 'number') return val;
-          if (val.toMillis) return val.toMillis();
-          if (val.seconds) return val.seconds * 1000;
-          return new Date(val).getTime() || 0;
-        };
-        return getTime(b.createdAt) - getTime(a.createdAt);
-      });
-
-      setPages(fetchedPages.filter((p: any) => !p.isDeleted));
-    } catch (e) {
-      console.error("fetchPages error:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchPages();
-  }, []);
-
-
-  // Auto-seed lgs-puan-hesaplama if missing
-  useEffect(() => {
-    const seedLgs = async () => {
-      try {
-        const docRef = doc(db, 'pages', 'lgs-puan-hesaplama');
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists() || docSnap.data().isDeleted) {
-          const { defaultLgsCalculatorData } = await import('../../lib/defaultData');
-          await setDoc(docRef, {
-            title: 'LGS Puan Hesaplama Modülü',
-            path: '/lgs-puan-hesaplama',
-            isDeleted: false,
-            isHidden: false,
-            blocks: defaultLgsCalculatorData,
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-          }, { merge: true });
-          fetchPages();
-        }
-      } catch (e) {
-        console.error("Auto-seed error:", e);
-      }
-    };
-    seedLgs();
-  }, []);
-
-  // Auto-seed kayit-fiyatlari if missing
-  useEffect(() => {
-    const seedKayit = async () => {
-      try {
-        const docRef = doc(db, 'pages', 'kayit-fiyatlari');
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists() || docSnap.data().isDeleted) {
-          const { defaultTuitionFeesData } = await import('../../lib/defaultData');
-          await setDoc(docRef, {
-            title: 'Kayıt Fiyatları',
-            path: '/kayit-fiyatlari',
-            isDeleted: false,
-            isHidden: false,
-            blocks: defaultTuitionFeesData,
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-          }, { merge: true });
-          fetchPages();
-        }
-      } catch (e) {
-        console.error("Auto-seed error:", e);
-      }
-    };
-    seedKayit();
-  }, []);
+  // Real-time pages are synced via useAdminStore; fetchPages is a no-op compatibility helper
+  const fetchPages = async () => {};
 
 
   const handleCreatePage = async (e: React.FormEvent) => {

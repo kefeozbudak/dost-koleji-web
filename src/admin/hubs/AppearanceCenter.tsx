@@ -1,20 +1,31 @@
-
 import IconField from "../../components/IconField";
-import { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc, collection, getDocs, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { useState, useEffect, useMemo } from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, withTimeout } from '../../lib/firebase';
 import MediaPickerModal from '../../components/MediaPickerModal';
 import { ChevronUp, ChevronDown, Save, Plus, Trash2, Layout, LayoutTemplate, Menu, Image as ImageIcon, Megaphone, Eye, Check , ArrowUp, ArrowDown} from 'lucide-react';
-
-
+import { useAdminStore } from '../../store/adminStore';
+import { setCachedData } from '../../lib/cache';
+import { getCachedMediaSync, fetchMediaByIdCached } from '../../lib/resolveMedia';
 
 const PreviewImage = ({ src, alt, className, style }: any) => {
-  const [resolved, setResolved] = useState(src);
+  const [resolved, setResolved] = useState(() => {
+    if (src && typeof src === 'string' && src.startsWith('/api/media/')) {
+      const mediaId = src.split('/api/media/')[1];
+      return getCachedMediaSync(mediaId) || src;
+    }
+    return src;
+  });
   useEffect(() => {
     if (src && typeof src === 'string' && src.startsWith('/api/media/')) {
       const mediaId = src.split('/api/media/')[1];
-      getDoc(doc(db, 'media', mediaId)).then(snap => {
-        if (snap.exists() && snap.data().url) setResolved(snap.data().url);
+      const cached = getCachedMediaSync(mediaId);
+      if (cached) {
+        setResolved(cached);
+        return;
+      }
+      fetchMediaByIdCached(mediaId).then(url => {
+        if (url) setResolved(url);
       }).catch(()=>{});
     } else {
       setResolved(src);
@@ -59,12 +70,47 @@ const compressImage = (file: File, maxWidth = 800, maxHeight = 800, quality = 0.
 };
 
 export default function AppearanceCenter() {
+  const {
+    pages: rawPages,
+    headerSettings,
+    footerSettings,
+    generalSettings,
+    settingsLoaded,
+    ensureSettingsListeners
+  } = useAdminStore();
+
   const [mediaPickerConfig, setMediaPickerConfig] = useState<{ isOpen: boolean; onSelect: (url: string) => void }>({ isOpen: false, onSelect: () => {} });
   const [activeTab, setActiveTab] = useState<'header' | 'announcement' | 'footer'>('header');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const [pagesList, setPagesList] = useState<any[]>([]);
+  const loading = !settingsLoaded;
+
+  const pagesList = useMemo(() => {
+    const validPages = rawPages.filter((p: any) => !p.isDeleted);
+    const defaultPagesList = [
+      { id: 'home', title: 'Ana Sayfa', path: '/' },
+      { id: 'on-kayit', title: 'Öğrenci Ön Kayıt', path: '/on-kayit' },
+      { id: 'kulup-kayit-formu', title: 'Kulüp Kayıt Formu', path: '/kulup-kayit-formu' },
+      { id: 'is-basvurusu', title: 'İş Başvurusu', path: '/is-basvurusu' },
+      { id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' },
+      { id: 'bursluluk-basvuru-formu', title: 'Bursluluk Sınav Başvurusu', path: '/bursluluk-basvuru-formu' },
+      { id: 'bursluluk-basvuru-onay', title: 'Bursluluk Sınav Başvuru Onayı', path: '/bursluluk-basvuru-onay' },
+      { id: 'lgs-puan-hesaplama', title: 'LGS Puan Hesaplama Modülü', path: '/lgs-puan-hesaplama' }
+    ];
+
+    const mergedMap = new Map();
+    defaultPagesList.forEach(dp => mergedMap.set(dp.path, dp));
+    validPages.forEach((p: any) => {
+      const pagePath = p.path || (p.id ? `/${p.id}` : '#');
+      mergedMap.set(pagePath, {
+        id: p.id,
+        title: p.title || p.id,
+        path: pagePath
+      });
+    });
+
+    return Array.from(mergedMap.values());
+  }, [rawPages]);
 
   const [announcementData, setAnnouncementData] = useState<any>({
     announcementActive: true,
@@ -102,69 +148,30 @@ export default function AppearanceCenter() {
   });
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const headerDoc = await getDoc(doc(db, 'settings', 'header'));
-        if (headerDoc.exists()) setHeaderData(headerDoc.data());
-        
-        const footerDoc = await getDoc(doc(db, 'settings', 'footer'));
-        if (footerDoc.exists()) setFooterData(footerDoc.data());
+    ensureSettingsListeners();
+  }, [ensureSettingsListeners]);
 
-        const generalDoc = await getDoc(doc(db, 'settings', 'general'));
-        if (generalDoc.exists()) {
-          const gData = generalDoc.data();
-          setAnnouncementData({
-            announcementActive: gData.announcementActive ?? true,
-            announcementText: gData.announcementText || '',
-            announcementIcon: gData.announcementIcon !== undefined ? gData.announcementIcon : '📢',
-            announcementButtonText: gData.announcementButtonText || '',
-            announcementButtonUrl: gData.announcementButtonUrl || '',
-            announcementBgColor: gData.announcementBgColor || '#0a192f',
-            announcementTextColor: gData.announcementTextColor || '#ffffff'
-          });
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+  useEffect(() => {
+    if (headerSettings) setHeaderData(headerSettings);
+  }, [headerSettings]);
 
-    // Live listener for pages so all created pages appear in dropdowns instantly
-    const unsubscribePages = onSnapshot(collection(db, 'pages'), (snapshot) => {
-      const fetchedPages = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      const validPages = fetchedPages.filter((p: any) => !p.isDeleted);
+  useEffect(() => {
+    if (footerSettings) setFooterData(footerSettings);
+  }, [footerSettings]);
 
-      const defaultPagesList = [
-        { id: 'home', title: 'Ana Sayfa', path: '/' },
-        { id: 'on-kayit', title: 'Öğrenci Ön Kayıt', path: '/on-kayit' },
-        { id: 'kulup-kayit-formu', title: 'Kulüp Kayıt Formu', path: '/kulup-kayit-formu' },
-          { id: 'is-basvurusu', title: 'İş Başvurusu', path: '/is-basvurusu' },
-        { id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' },
-        { id: 'bursluluk-basvuru-formu', title: 'Bursluluk Sınav Başvurusu', path: '/bursluluk-basvuru-formu' },
-        { id: 'bursluluk-basvuru-onay', title: 'Bursluluk Sınav Başvuru Onayı', path: '/bursluluk-basvuru-onay' },
-        { id: 'lgs-puan-hesaplama', title: 'LGS Puan Hesaplama Modülü', path: '/lgs-puan-hesaplama' }
-      ];
-
-      const mergedMap = new Map();
-      defaultPagesList.forEach(dp => mergedMap.set(dp.path, dp));
-      validPages.forEach((p: any) => {
-        const pagePath = p.path || (p.id ? `/${p.id}` : '#');
-        mergedMap.set(pagePath, {
-          id: p.id,
-          title: p.title || p.id,
-          path: pagePath
-        });
+  useEffect(() => {
+    if (generalSettings) {
+      setAnnouncementData({
+        announcementActive: generalSettings.announcementActive ?? true,
+        announcementText: generalSettings.announcementText || '',
+        announcementIcon: generalSettings.announcementIcon !== undefined ? generalSettings.announcementIcon : '📢',
+        announcementButtonText: generalSettings.announcementButtonText || '',
+        announcementButtonUrl: generalSettings.announcementButtonUrl || '',
+        announcementBgColor: generalSettings.announcementBgColor || '#0a192f',
+        announcementTextColor: generalSettings.announcementTextColor || '#ffffff'
       });
-
-      setPagesList(Array.from(mergedMap.values()));
-    }, (err) => {
-      console.error("Error listening pages:", err);
-    });
-
-    return () => unsubscribePages();
-  }, []);
+    }
+  }, [generalSettings]);
 
   const renderUrlEditor = (value: string, onChange: (val: string) => void) => {
     const currentVal = value || '';
@@ -228,11 +235,11 @@ export default function AppearanceCenter() {
     try {
       if (activeTab === 'header') {
         await withTimeout(setDoc(doc(db, 'settings', 'header'), headerData));
+        setCachedData('settings_header', headerData);
       } else if (activeTab === 'announcement') {
         const generalRef = doc(db, 'settings', 'general');
-        const generalSnap = await getDoc(generalRef);
-        const currentGeneral = generalSnap.exists() ? generalSnap.data() : {};
-        await withTimeout(setDoc(generalRef, {
+        const currentGeneral = generalSettings || {};
+        const nextGeneral = {
           ...currentGeneral,
           announcementActive: announcementData.announcementActive,
           announcementText: announcementData.announcementText,
@@ -242,9 +249,12 @@ export default function AppearanceCenter() {
           announcementBgColor: announcementData.announcementBgColor,
           announcementTextColor: announcementData.announcementTextColor,
           updatedAt: Date.now()
-        }));
+        };
+        await withTimeout(setDoc(generalRef, nextGeneral, { merge: true }));
+        setCachedData('settings_general', nextGeneral);
       } else {
         await withTimeout(setDoc(doc(db, 'settings', 'footer'), footerData));
+        setCachedData('settings_footer', footerData);
       }
       setMessage({ type: 'success', text: 'Ayarlar başarıyla kaydedildi!' });
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);

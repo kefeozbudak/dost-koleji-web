@@ -1,199 +1,60 @@
-import { useState, useEffect } from 'react';
-import { collection, query, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { 
-  FileText, Users, Eye, TrendingUp, Activity, FileStack, MessageSquare, 
+import { useEffect, useMemo } from 'react';
+import {
+  Users, Eye, TrendingUp, Activity, FileStack, MessageSquare,
   ShieldCheck, Server, Lock, CheckCircle2, Database, BarChart3, ArrowRight
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
+import { useAdminStore } from '../store/adminStore';
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({
-    pagesCount: 0,
-    formsCount: 0,
-    usersCount: 0,
-  });
-  
-  const [recentForms, setRecentForms] = useState<any[]>([]);
-  const [trafficSummary, setTrafficSummary] = useState({
-    todayViews: 0,
-    todayVisitors: 0,
-    weeklyViews: 0,
-    totalViews: 0,
-  });
-  const [loading, setLoading] = useState(true);
-
-  // Auto-patch home page links and create on-kayit page
-  useEffect(() => {
-    const patchHomeLinks = async () => {
-      try {
-        const { doc, getDoc, updateDoc, setDoc } = await import('firebase/firestore');
-        
-        // 1. Create on-kayit page if it doesn't exist
-        const pageRef = doc(db, 'pages', 'on-kayit');
-        const pageSnap = await getDoc(pageRef);
-        if (!pageSnap.exists()) {
-           const { defaultPreRegistrationData } = await import('../lib/defaultData');
-           await setDoc(pageRef, {
-              title: 'Öğrenci Ön Kayıt Formu',
-              path: '/on-kayit',
-              blocks: defaultPreRegistrationData,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              author: 'system'
-           });
-        }
-
-        // 1b. Create bursluluk-basvuru-formu page if it doesn't exist or is empty
-        const schPageRef = doc(db, 'pages', 'bursluluk-basvuru-formu');
-        const schPageSnap = await getDoc(schPageRef);
-        if (!schPageSnap.exists() || !schPageSnap.data()?.blocks || schPageSnap.data().blocks.length === 0 || schPageSnap.data().blocks[0]?.type === 'pre_registration_form') {
-           const { defaultScholarshipPageData } = await import('../lib/defaultData');
-           await setDoc(schPageRef, {
-              title: 'Bursluluk Sınav Başvurusu',
-              path: '/bursluluk-basvuru-formu',
-              blocks: defaultScholarshipPageData,
-              isDeleted: false,
-              isHidden: false,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              author: 'system'
-           });
-        }
-
-        // 1c. Create bursluluk-basvuru-onay page if it doesn't exist or is empty
-        const schConfPageRef = doc(db, 'pages', 'bursluluk-basvuru-onay');
-        const schConfPageSnap = await getDoc(schConfPageRef);
-        if (!schConfPageSnap.exists() || !schConfPageSnap.data()?.blocks || schConfPageSnap.data().blocks.length === 0) {
-           const { defaultScholarshipConfirmationPageData } = await import('../lib/defaultData');
-           await setDoc(schConfPageRef, {
-              title: 'Bursluluk Sınav Başvuru Onayı',
-              path: '/bursluluk-basvuru-onay',
-              blocks: defaultScholarshipConfirmationPageData,
-              isDeleted: false,
-              isHidden: false,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              author: 'system'
-           });
-        }
-
-        // 1d. Create lgs-puan-hesaplama page if it doesn't exist or is empty
-        const lgsPageRef = doc(db, 'pages', 'lgs-puan-hesaplama');
-        const lgsPageSnap = await getDoc(lgsPageRef);
-        if (!lgsPageSnap.exists() || !lgsPageSnap.data()?.blocks || lgsPageSnap.data().blocks.length === 0) {
-           const { defaultLgsCalculatorData } = await import('../lib/defaultData');
-           await setDoc(lgsPageRef, {
-              title: 'LGS Puan Hesaplama Modülü',
-              path: '/lgs-puan-hesaplama',
-              blocks: defaultLgsCalculatorData,
-              isDeleted: false,
-              isHidden: false,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              author: 'system'
-           });
-        }
-                // 2. Patch home page (removed forced auto-injection for /on-kayit)
-        
-        // 3. Patch settings/header and settings/footer
-        const headerRef = doc(db, 'settings', 'header');
-        const headerSnap = await getDoc(headerRef);
-        if (!headerSnap.exists()) {
-           // create if not exists
-           await setDoc(headerRef, {
-             logoUrl: '/dost-logo-png.png',
-             links: [
-               { label: 'Hakkımızda', url: '/hakkimizda' },
-               { label: 'Kampüslerimiz', url: '#' }
-             ],
-             ctaButton: { label: 'İletişim', url: '/iletisim' }
-           });
-        }
-        
-        const footerRef = doc(db, 'settings', 'footer');
-        const footerSnap = await getDoc(footerRef);
-        if (!footerSnap.exists()) {
-           await setDoc(footerRef, {
-              logoUrl: '/dost-logo-png.png',
-              brandName: 'Dost Koleji',
-              brandDesc: 'Dost Koleji, geleceğin liderlerini yetiştiren vizyoner eğitim kurumu.',
-              newsletterTitle: 'E-Bülten Kaydı',
-              newsletterDesc: 'Gelişmelerden haberdar olmak için abone olun.',
-              newsletterPlaceholder: 'E-posta adresiniz',
-              newsletterButtonText: 'Kaydol',
-              copyright: '© 2024 Dost Koleji. Tüm Hakları Saklıdır.',
-              columns: [
-                { title: 'Kurumsal', links: [{ label: 'Hakkımızda', url: '/hakkimizda' }] }
-              ],
-              legalLinks: [{ label: 'KVKK', url: '#' }]
-           });
-        }
-      } catch (e) {
-        console.error("Patch error", e);
-      }
-    };
-    patchHomeLinks();
-  }, []);
+  const {
+    pages,
+    forms,
+    users,
+    trafficSummary: rawSummary,
+    trafficDaily,
+    pagesLoaded,
+    formsLoaded,
+    ensureUsersListener,
+    ensureAnalyticsListeners
+  } = useAdminStore();
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        // Fetch counts
-        const pagesSnap = await getDocs(collection(db, 'pages'));
-        const formsSnap = await getDocs(collection(db, 'forms'));
-        const usersSnap = await getDocs(collection(db, 'users'));
-        
-        setStats({
-          pagesCount: pagesSnap.size,
-          formsCount: formsSnap.size,
-          usersCount: usersSnap.size
-        });
+    ensureUsersListener();
+    ensureAnalyticsListeners();
+  }, [ensureUsersListener, ensureAnalyticsListeners]);
 
-        // Fetch recent forms
-        const formsQ = query(collection(db, 'forms'), orderBy('createdAt', 'desc'), limit(5));
-        const recentFormsSnap = await getDocs(formsQ);
-        setRecentForms(recentFormsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        
-        // Fetch real traffic stats
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todaySnap = await getDoc(doc(db, 'traffic_daily', todayStr));
-        const summarySnap = await getDoc(doc(db, 'traffic_stats', 'summary'));
-        const dailySnap = await getDocs(query(collection(db, 'traffic_daily'), orderBy('dateStr', 'desc'), limit(7)));
+  const stats = useMemo(() => ({
+    pagesCount: (pages || []).filter((p: any) => !p.isDeleted).length,
+    formsCount: (forms || []).length,
+    usersCount: (users || []).length || 1
+  }), [pages, forms, users]);
 
-        let tViews = 0;
-        let tVisitors = 0;
-        if (todaySnap.exists()) {
-          const tData = todaySnap.data();
-          tViews = tData.views || 0;
-          tVisitors = tData.visitors || 0;
-        }
+  const recentForms = useMemo(() => {
+    return (forms || []).slice(0, 5);
+  }, [forms]);
 
-        let wViews = 0;
-        dailySnap.forEach((d) => {
-          wViews += (d.data().views || 0);
-        });
+  const trafficSummary = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayDoc = (trafficDaily || []).find((d) => d.dateStr === todayStr);
+    const todayViews = todayDoc?.views || 0;
+    const todayVisitors = todayDoc?.visitors || 0;
 
-        const totalV = summarySnap.exists() ? (summarySnap.data().totalViews || 0) : tViews;
+    const last7 = (trafficDaily || []).slice(-7);
+    let weeklyViews = 0;
+    last7.forEach((d) => {
+      weeklyViews += d.views || 0;
+    });
 
-        setTrafficSummary({
-          todayViews: tViews,
-          todayVisitors: tVisitors,
-          weeklyViews: wViews,
-          totalViews: totalV
-        });
+    const totalViews = rawSummary?.totalViews || weeklyViews || todayViews;
 
-        
-      } catch (error) {
-        console.error("Dashboard veri çekme hatası:", error);
-      } finally {
-        setLoading(false);
-      }
+    return {
+      todayViews,
+      todayVisitors,
+      weeklyViews,
+      totalViews
     };
-
-    fetchDashboardData();
-  }, []);
+  }, [rawSummary, trafficDaily]);
 
   const formatDate = (timestamp: number) => {
     if (!timestamp) return '-';
@@ -241,8 +102,8 @@ export default function AdminDashboard() {
     }
   };
 
-  if (loading) {
-     return <div className="flex-1 flex items-center justify-center bg-slate-50"><div className="w-8 h-8 border-4 border-[#004899] border-t-transparent rounded-full animate-spin"></div></div>;
+  if (!pagesLoaded && !formsLoaded && pages.length === 0) {
+    return <div className="flex-1 flex items-center justify-center bg-slate-50"><div className="w-8 h-8 border-4 border-[#004899] border-t-transparent rounded-full animate-spin"></div></div>;
   }
 
   return (

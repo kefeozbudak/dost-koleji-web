@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { useAdminStore } from '../../store/adminStore';
 import { 
   FileText, Calendar, Trash2, CheckCircle2, Clock, Printer, 
   User, Phone, Mail, MapPin, GraduationCap, Search, X, MessageSquare,
@@ -228,8 +229,9 @@ const PreRegistrationPrintView = ({ data, date, index }: { data: any, date: numb
 };
 
 export default function ClubCenter() {
-  const [reports, setReports] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { forms: sharedForms, formsLoaded } = useAdminStore();
+  const [reports, setReports] = useState<any[]>(sharedForms || []);
+  const [loading, setLoading] = useState(!formsLoaded && sharedForms.length === 0);
   const [activeTab, setActiveTab] = useState<'club'>('club');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterKampus, setFilterKampus] = useState('');
@@ -255,227 +257,56 @@ export default function ClubCenter() {
   };
 
   useEffect(() => {
-    // Helper to merge Firestore docs with local persistent backup
-    const mergeWithLocalBackup = (firestoreItems: any[]) => {
-      let localItems: any[] = [];
-      try {
-        localItems = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-      } catch (e) {
-        localItems = [];
-      }
-
-      let deletedIds: string[] = [];
-      try {
-        deletedIds = JSON.parse(localStorage.getItem('dost_forms_deleted_ids') || '[]');
-      } catch (e) {
-        deletedIds = [];
-      }
-
-      const map = new Map<string, any>();
-
-      // 1. Add real Firestore items (excluding deleted ones)
-      firestoreItems.forEach(item => {
-        if (item && item.id && !deletedIds.includes(item.id)) {
-          map.set(item.id, item);
-        }
-      });
-
-      // 2. Add local backup items (excluding deleted ones and duplicates of firestore items)
-      localItems.forEach(localItem => {
-        if (!localItem || !localItem.id || deletedIds.includes(localItem.id)) return;
-
-        const localTime = typeof localItem.createdAt === 'number' ? localItem.createdAt : 0;
-        const localDataStr = JSON.stringify(localItem.data || {});
-
-        let isDuplicate = false;
-        for (const fsItem of firestoreItems) {
-          const fsTime = typeof fsItem.createdAt === 'number' ? fsItem.createdAt : fsItem.createdAt?.toMillis ? fsItem.createdAt.toMillis() : 0;
-          const fsDataStr = JSON.stringify(fsItem.data || {});
-
-          if (fsDataStr === localDataStr || (localTime > 0 && fsTime > 0 && Math.abs(fsTime - localTime) < 3000)) {
-            isDuplicate = true;
-            break;
-          }
-        }
-
-        if (!isDuplicate && !map.has(localItem.id)) {
-          map.set(localItem.id, localItem);
-        }
-      });
-
-      const combined = Array.from(map.values());
-
-      // Sort newest first
-      combined.sort((a, b) => {
-        const timeA = typeof a.createdAt === 'number' ? a.createdAt : a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-        const timeB = typeof b.createdAt === 'number' ? b.createdAt : b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-        return timeB - timeA;
-      });
-
-      // Update backup store with clean combined data
-      try {
-        localStorage.setItem('dost_forms_backup', JSON.stringify(combined));
-      } catch (e) {
-        console.warn('LocalStorage save warning:', e);
-      }
-
-      return combined;
-    };
-
-    // Real-time listener for forms collection
-    const unsubscribe = onSnapshot(collection(db, 'forms'), (snapshot) => {
-      const fetchedReports: any[] = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      }));
-
-      const merged = mergeWithLocalBackup(fetchedReports);
-      setReports(merged);
+    setReports(sharedForms || []);
+    if (formsLoaded || (sharedForms && sharedForms.length > 0)) {
       setLoading(false);
-    }, (error) => {
-      console.error("Error subscribing to forms:", error);
-      const merged = mergeWithLocalBackup([]);
-      setReports(merged);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+    }
+  }, [sharedForms, formsLoaded]);
 
   const handleDelete = async (id: string) => {
     if (!id) return;
-    
-    // Get deleted IDs history
-    let deletedIds: string[] = [];
-    try {
-      deletedIds = JSON.parse(localStorage.getItem('dost_forms_deleted_ids') || '[]');
-    } catch (e) {
-      deletedIds = [];
-    }
-
-    // Find the target report to identify duplicate local/firestore IDs
-    const targetReport = reports.find(r => r.id === id);
-    const targetDataStr = targetReport ? JSON.stringify(targetReport.data || {}) : '';
-    const targetTime = targetReport ? (typeof targetReport.createdAt === 'number' ? targetReport.createdAt : targetReport.createdAt?.toMillis ? targetReport.createdAt.toMillis() : 0) : 0;
-
-    // Find all matching report IDs (e.g., local backup copies or duplicates)
-    const idsToDelete = [id];
-    reports.forEach(r => {
-      if (r.id === id) return;
-      const rDataStr = JSON.stringify(r.data || {});
-      const rTime = typeof r.createdAt === 'number' ? r.createdAt : r.createdAt?.toMillis ? r.createdAt.toMillis() : 0;
-      if ((targetDataStr && rDataStr === targetDataStr) || (targetTime > 0 && rTime > 0 && Math.abs(rTime - targetTime) < 3000)) {
-        idsToDelete.push(r.id);
-      }
-    });
-
-    const updatedDeletedIds = Array.from(new Set([...deletedIds, ...idsToDelete]));
-    try {
-      localStorage.setItem('dost_forms_deleted_ids', JSON.stringify(updatedDeletedIds));
-    } catch (e) {
-      console.warn('LocalStorage deleted_ids error:', e);
-    }
-
-    // Update state immediately in UI
-    setReports(prev => prev.filter(r => !idsToDelete.includes(r.id)));
+    setReports((prev) => prev.filter((r) => r.id !== id));
     setDeleteConfirmId(null);
 
-    // Remove from localStorage backup
-    try {
-      const localItems = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-      const updatedBackup = localItems.filter((item: any) => !idsToDelete.includes(item.id));
-      localStorage.setItem('dost_forms_backup', JSON.stringify(updatedBackup));
-    } catch (err) {
-      console.error("Error updating local storage on delete:", err);
-    }
-
-    // Delete from Firestore if valid Firestore doc ID (non-local)
-    for (const delId of idsToDelete) {
-      if (!delId.startsWith('local_')) {
-        try {
-          await deleteDoc(doc(db, 'forms', delId));
-        } catch (err) {
-          console.error("Error deleting form from Firestore:", err);
-        }
+    if (!id.startsWith('local_')) {
+      try {
+        await deleteDoc(doc(db, 'forms', id));
+      } catch (err) {
+        console.error('Error deleting form from Firestore:', err);
       }
     }
   };
 
   const handleBulkDelete = async () => {
-    const idsToDelete = isSelectionMode ? selectedIds : filteredReports.map(r => r.id);
+    const idsToDelete = isSelectionMode ? selectedIds : filteredReports.map((r) => r.id);
     if (idsToDelete.length === 0) return;
-    let deletedIds: string[] = [];
-    try {
-      deletedIds = JSON.parse(localStorage.getItem('dost_forms_deleted_ids') || '[]');
-    } catch (e) {
-      deletedIds = [];
-    }
 
-    // Expand deletion to include duplicates in local memory (similar to handleDelete)
-    const expandedIdsToDelete = new Set<string>();
-    const reportsToProcess = isSelectionMode ? filteredReports.filter(r => idsToDelete.includes(r.id)) : filteredReports;
-    reportsToProcess.forEach(targetReport => {
-      const targetDataStr = JSON.stringify(targetReport.data || {});
-      const targetTime = typeof targetReport.createdAt === 'number' ? targetReport.createdAt : targetReport.createdAt?.toMillis ? targetReport.createdAt.toMillis() : 0;
-      
-      reports.forEach(r => {
-        const rDataStr = JSON.stringify(r.data || {});
-        const rTime = typeof r.createdAt === 'number' ? r.createdAt : r.createdAt?.toMillis ? r.createdAt.toMillis() : 0;
-        if ((targetDataStr && rDataStr === targetDataStr) || (targetTime > 0 && rTime > 0 && Math.abs(rTime - targetTime) < 3000)) {
-          expandedIdsToDelete.add(r.id);
-        }
-      });
-    });
-
-    const idsToDeleteArray = Array.from(expandedIdsToDelete);
-
-    const updatedDeletedIds = Array.from(new Set([...deletedIds, ...idsToDeleteArray]));
-    try {
-      localStorage.setItem('dost_forms_deleted_ids', JSON.stringify(updatedDeletedIds));
-    } catch (e) {
-      console.warn('LocalStorage deleted_ids error:', e);
-    }
-
-    setReports(prev => prev.filter(r => !idsToDeleteArray.includes(r.id)));
+    setReports((prev) => prev.filter((r) => !idsToDelete.includes(r.id)));
+    setSelectedIds([]);
     setBulkDeleteConfirm(false);
 
-    try {
-      const localItems = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-      const updatedBackup = localItems.filter((item: any) => !idsToDeleteArray.includes(item.id));
-      localStorage.setItem('dost_forms_backup', JSON.stringify(updatedBackup));
-    } catch (err) {
-      console.error("Error updating local storage on delete:", err);
-    }
-
-    for (const delId of idsToDeleteArray) {
-      if (!delId.startsWith('local_')) {
-        try {
-          await deleteDoc(doc(db, 'forms', delId));
-        } catch (err) {
-          console.error("Error deleting form from Firestore:", err);
-        }
-      }
-    }
+    await Promise.all(
+      idsToDelete
+        .filter((delId) => !delId.startsWith('local_'))
+        .map((delId) =>
+          deleteDoc(doc(db, 'forms', delId)).catch((err) =>
+            console.error('Error deleting form from Firestore:', err)
+          )
+        )
+    );
   };
 
   const handleToggleStatus = async (report: any) => {
     const nextStatus = report.status === 'processed' ? 'new' : 'processed';
-    // Update Firestore
+    setReports((prev) =>
+      prev.map((item: any) => (item.id === report.id ? { ...item, status: nextStatus } : item))
+    );
     try {
       await updateDoc(doc(db, 'forms', report.id), {
         status: nextStatus
       });
     } catch (err) {
-      console.error("Error updating status in Firestore:", err);
-    }
-    // Update localStorage backup
-    try {
-      const localItems = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-      const updated = localItems.map((item: any) => item.id === report.id ? { ...item, status: nextStatus } : item);
-      localStorage.setItem('dost_forms_backup', JSON.stringify(updated));
-      setReports(updated);
-    } catch (err) {
-      console.error("Error updating local storage on status change:", err);
+      console.error('Error updating status in Firestore:', err);
     }
   };
 

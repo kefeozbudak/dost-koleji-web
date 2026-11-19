@@ -1,8 +1,9 @@
 import MigrateTuitionFees from "./MigrateTuitionFees";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { collection, onSnapshot, getDoc, setDoc, doc } from 'firebase/firestore';
+import { setDoc, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { useAdminStore } from '../store/adminStore';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -40,19 +41,42 @@ export default function AdminLayout() {
   const [isEduMenuOpen, setIsEduMenuOpen] = useState(true);
   const [isFormsMenuOpen, setIsFormsMenuOpen] = useState(true);
   const [isCampusMenuOpen, setIsCampusMenuOpen] = useState(true);
-  const [pagesList, setPagesList] = useState<any[]>([]);
   const { role, allowedPages } = useAuthStore();
+  const { pages, pagesLoaded, startBaseListeners, stopAllListeners } = useAdminStore();
 
-
-  // Auto-seed lgs-puan-hesaplama
+  // Start base admin listeners ONLY when inside AdminLayout, and stop them when leaving AdminLayout
   useEffect(() => {
-    const seedLgs = async () => {
+    startBaseListeners();
+    return () => {
+      stopAllListeners();
+    };
+  }, [startBaseListeners, stopAllListeners]);
+
+  const pagesList = useMemo(() => {
+    const filtered = (pages || []).filter((p: any) => !p.isDeleted);
+    if (!filtered.find((p: any) => p.id === 'egitim-sistemimiz')) {
+      filtered.push({ id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' });
+    }
+    return filtered;
+  }, [pages]);
+
+  // Seed missing default pages ONLY ONCE using the already-loaded pages snapshot (0 extra reads!)
+  useEffect(() => {
+    if (!pagesLoaded) return;
+    if (localStorage.getItem('dost_admin_pages_seeded_v2') === 'true') return;
+
+    const seedMissingPagesFromState = async () => {
       try {
-        const docRef = doc(db, 'pages', 'lgs-puan-hesaplama');
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists() || docSnap.data().isDeleted) {
-          const { defaultLgsCalculatorData } = await import('../lib/defaultData');
-          await setDoc(docRef, {
+        localStorage.setItem('dost_admin_pages_seeded_v2', 'true');
+        const existingMap = new Map<string, any>();
+        pages.forEach((p: any) => existingMap.set(p.id, p));
+
+        const { defaultTuitionFeesData } = await import('../lib/defaultData');
+
+        // 1. lgs-puan-hesaplama
+        const lgsDoc = existingMap.get('lgs-puan-hesaplama');
+        if (!lgsDoc) {
+          await setDoc(doc(db, 'pages', 'lgs-puan-hesaplama'), {
             title: 'LGS Puan Hesaplama Modülü',
             path: '/lgs-puan-hesaplama',
             isDeleted: false,
@@ -62,22 +86,11 @@ export default function AdminLayout() {
             updatedAt: Date.now()
           }, { merge: true });
         }
-      } catch (e) {
-        console.error("Auto-seed error:", e);
-      }
-    };
-    seedLgs();
-  }, []);
 
-  // Auto-seed kayit-fiyatlari
-  useEffect(() => {
-    const seedKayit = async () => {
-      try {
-        const docRef = doc(db, 'pages', 'kayit-fiyatlari');
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists() || docSnap.data().isDeleted) {
-          const { defaultTuitionFeesData } = await import('../lib/defaultData');
-          await setDoc(docRef, {
+        // 2. kayit-fiyatlari
+        const kayitDoc = existingMap.get('kayit-fiyatlari');
+        if (!kayitDoc) {
+          await setDoc(doc(db, 'pages', 'kayit-fiyatlari'), {
             title: 'Kayıt Fiyatları',
             path: '/kayit-fiyatlari',
             isDeleted: false,
@@ -87,111 +100,74 @@ export default function AdminLayout() {
             updatedAt: Date.now()
           }, { merge: true });
         }
-      } catch (e) {
-        console.error("Auto-seed error:", e);
-      }
-    };
-    seedKayit();
-  }, []);
 
-  useEffect(() => {
-    const seedPages = async () => {
-      try {
-        const docRef = doc(db, 'pages', 'kulup-kayit-formu');
-        const docSnap = await getDoc(docRef);
-        
-        const defaultBlocks = [
+        // 3. kulup-kayit-formu
+        const kulupDoc = existingMap.get('kulup-kayit-formu');
+        if (!kulupDoc) {
+          const defaultClubBlocks = [
             {
-                type: "club_registration_form",
-                titlePart1: "Dost Koleji",
-                titlePart2: "Kulüp Kayıt",
-                subtitle: "Öğrenci Kulüp Kayıt Portalı",
-                clubs: [
-                    { id: "cimnastik", label: "Cimnastik", icon: "sports_gymnastics" },
-                    { id: "basketbol", label: "Basketbol", icon: "sports_basketball" },
-                    { id: "voleybol", label: "Voleybol", icon: "sports_volleyball" },
-                    { id: "halk_oyunlari", label: "Halk Oyunları", icon: "accessibility_new" },
-                    { id: "oryantiring", label: "Oryantiring", icon: "explore" },
-                    { id: "masa_tenisi", label: "Masa Tenisi", icon: "sports_tennis" },
-                    { id: "okculuk", label: "Okçuluk", icon: "sports_martial_arts" },
-                    { id: "atletik_koordinasyon", label: "Atletik Koordinasyon", icon: "fitness_center" },
-                    { id: "yuzme", label: "Yüzme", icon: "pool" },
-                    { id: "taekwondo", label: "Taekwondo", icon: "sports_martial_arts" },
-                    { id: "futsal", label: "Futsal", icon: "sports_soccer" },
-                    { id: "keman", label: "Keman", icon: "music_note" },
-                    { id: "gitar", label: "Gitar", icon: "music_note" },
-                    { id: "piyano", label: "Piyano", icon: "piano" }
-                ],
-                inputs: [
-                    { type: 'section_title', label: 'Öğrenci Bilgileri', icon: 'person' },
-                    { type: 'text', name: 'studentName', label: 'Adı Soyadı', placeholder: 'Örn: Ahmet Yılmaz', required: true },
-                    { type: 'select', name: 'studentCampus', label: 'Kampüs Seçimi', options: 'Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü', required: true },
-                    { type: 'select', name: 'studentClass', label: 'Sınıfı', options: '1. Sınıf, 2. Sınıf, 3. Sınıf, 4. Sınıf, 5. Sınıf, 6. Sınıf, 7. Sınıf, 8. Sınıf', required: true },
-                    { type: 'section_title', label: 'Veli İletişim Bilgileri', icon: 'contact_phone' },
-                    { type: 'text', name: 'parentName', label: 'Veli Adı Soyadı', placeholder: 'Örn: Mehmet Yılmaz', required: true },
-                    { type: 'tel', name: 'parentPhone', label: 'Telefon Numarası', placeholder: '0(5xx) xxx xx xx', required: true },
-                    { type: 'checkbox', name: 'kvkkConsent', label: 'KVKK Aydınlatma Metni\'ni okudum, kişisel verilerimin kulüp kaydı amacıyla işlenmesini onaylıyorum.', required: true }
-                ]
+              type: "club_registration_form",
+              titlePart1: "Dost Koleji",
+              titlePart2: "Kulüp Kayıt",
+              subtitle: "Öğrenci Kulüp Kayıt Portalı",
+              clubs: [
+                { id: "cimnastik", label: "Cimnastik", icon: "sports_gymnastics" },
+                { id: "basketbol", label: "Basketbol", icon: "sports_basketball" },
+                { id: "voleybol", label: "Voleybol", icon: "sports_volleyball" },
+                { id: "halk_oyunlari", label: "Halk Oyunları", icon: "accessibility_new" },
+                { id: "oryantiring", label: "Oryantiring", icon: "explore" },
+                { id: "masa_tenisi", label: "Masa Tenisi", icon: "sports_tennis" },
+                { id: "okculuk", label: "Okçuluk", icon: "sports_martial_arts" },
+                { id: "atletik_koordinasyon", label: "Atletik Koordinasyon", icon: "fitness_center" },
+                { id: "yuzme", label: "Yüzme", icon: "pool" },
+                { id: "taekwondo", label: "Taekwondo", icon: "sports_martial_arts" },
+                { id: "futsal", label: "Futsal", icon: "sports_soccer" },
+                { id: "keman", label: "Keman", icon: "music_note" },
+                { id: "gitar", label: "Gitar", icon: "music_note" },
+                { id: "piyano", label: "Piyano", icon: "piano" }
+              ],
+              inputs: [
+                { type: 'section_title', label: 'Öğrenci Bilgileri', icon: 'person' },
+                { type: 'text', name: 'studentName', label: 'Adı Soyadı', placeholder: 'Örn: Ahmet Yılmaz', required: true },
+                { type: 'select', name: 'studentCampus', label: 'Kampüs Seçimi', options: 'Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü', required: true },
+                { type: 'select', name: 'studentClass', label: 'Sınıfı', options: '1. Sınıf, 2. Sınıf, 3. Sınıf, 4. Sınıf, 5. Sınıf, 6. Sınıf, 7. Sınıf, 8. Sınıf', required: true },
+                { type: 'section_title', label: 'Veli İletişim Bilgileri', icon: 'contact_phone' },
+                { type: 'text', name: 'parentName', label: 'Veli Adı Soyadı', placeholder: 'Örn: Mehmet Yılmaz', required: true },
+                { type: 'tel', name: 'parentPhone', label: 'Telefon Numarası', placeholder: '0(5xx) xxx xx xx', required: true },
+                { type: 'checkbox', name: 'kvkkConsent', label: 'KVKK Aydınlatma Metni\'ni okudum, kişisel verilerimin kulüp kaydı amacıyla işlenmesini onaylıyorum.', required: true }
+              ]
             }
-        ];
-
-        if (!docSnap.exists()) {
-          await setDoc(docRef, {
-              title: "Kulüp Kayıt Formu",
-              path: "/kulup-kayit-formu",
-              isDeleted: false,              
-              isHidden: false,
-              blocks: defaultBlocks,
-              createdAt: Date.now()
+          ];
+          await setDoc(doc(db, 'pages', 'kulup-kayit-formu'), {
+            title: "Kulüp Kayıt Formu",
+            path: "/kulup-kayit-formu",
+            isDeleted: false,
+            isHidden: false,
+            blocks: defaultClubBlocks,
+            createdAt: Date.now()
           });
-        } else {
-          const data = docSnap.data();
-          if (!data.blocks || data.blocks.length === 0 || !data.blocks.some((b: any) => b.type === 'club_registration_form')) {
-            await setDoc(docRef, { blocks: defaultBlocks }, { merge: true });
-          } else {
-            const hasCimnastik = data.blocks.some((b: any) => b.type === 'club_registration_form' && b.clubs && b.clubs.some((c: any) => c.id === 'cimnastik'));
-            if (!hasCimnastik) {
-              const newBlocks = data.blocks.map((b: any) => {
-                if (b.type === 'club_registration_form') {
-                  return { ...b, clubs: defaultBlocks[0].clubs };
-                }
-                return b;
-              });
-              await setDoc(docRef, { blocks: newBlocks }, { merge: true });
-            }
-          }
         }
 
-        // Seed Education Level, Form & Campus Pages if missing
+        // 4. Other standard pages if completely absent from DB
         const pagesToSeed = [
           { id: 'anaokulu', title: 'Anaokulu', path: '/anaokulu' },
           { id: 'ilkokul', title: 'İlkokul', path: '/ilkokul' },
           { id: 'ortaokul', title: 'Ortaokul', path: '/ortaokul' },
           { id: 'lise', title: 'Lise', path: '/lise' },
           { id: 'on-kayit', title: 'Öğrenci Ön Kayıt Formu', path: '/on-kayit' },
-          { id: 'kulup-kayit-formu', title: 'Kulüp Kayıt Formu', path: '/kulup-kayit-formu' },
-    { id: 'is-basvuru-formu', title: 'İş Başvuru Formu', path: '/is-basvuru-formu' },
+          { id: 'is-basvuru-formu', title: 'İş Başvuru Formu', path: '/is-basvuru-formu' },
           { id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' },
           { id: 'bursluluk-basvuru-formu', title: 'Bursluluk Sınav Başvurusu', path: '/bursluluk-basvuru-formu' },
           { id: 'bursluluk-basvuru-onay', title: 'Bursluluk Sınav Başvuru Onayı', path: '/bursluluk-basvuru-onay' },
-    { id: 'lgs-puan-hesaplama', title: 'LGS Puan Hesaplama Modülü', path: '/lgs-puan-hesaplama' },
           { id: 'umitkoy-kampusu', title: 'Ümitköy Kampüsü', path: '/umitkoy-kampusu' },
           { id: 'eryaman-kampusu', title: 'Eryaman Kampüsü', path: '/eryaman-kampusu' },
           { id: 'oran-kampusu', title: 'Oran Kampüsü', path: '/oran-kampusu' },
         ];
-        for (const item of pagesToSeed) {
-          const pageRef = doc(db, 'pages', item.id);
-          const pageSnap = await getDoc(pageRef);
-          
-          let initialBlocks = [];
-          if (item.id === 'egitim-sistemimiz') {
-             initialBlocks = defaultEgitimSistemiData;
-          } else if (item.id === 'lgs-puan-hesaplama') {
-             initialBlocks = defaultLgsCalculatorData;
-          }
 
-          if (!pageSnap.exists()) {
-            await setDoc(pageRef, {
+        for (const item of pagesToSeed) {
+          if (!existingMap.has(item.id)) {
+            const initialBlocks = item.id === 'egitim-sistemimiz' ? defaultEgitimSistemiData : [];
+            await setDoc(doc(db, 'pages', item.id), {
               title: item.title,
               path: item.path,
               isDeleted: false,
@@ -199,38 +175,15 @@ export default function AdminLayout() {
               blocks: initialBlocks,
               createdAt: Date.now()
             });
-          } else if (item.id === 'egitim-sistemimiz' || item.id === 'lgs-puan-hesaplama') {
-            const data = pageSnap.data();
-            if (!data.blocks || data.blocks.length === 0) {
-              await setDoc(pageRef, { blocks: initialBlocks }, { merge: true });
-            }
           }
         }
       } catch (e) {
         console.error("Failed to seed pages:", e);
       }
     };
-    seedPages();
-  }, []);
 
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'pages'), (snapshot) => {
-      try {
-        let fetched = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
-        let filtered = fetched.filter((p: any) => !p.isDeleted);
-        if (!filtered.find(p => p.id === 'egitim-sistemimiz')) {
-          filtered.push({ id: 'egitim-sistemimiz', title: 'Eğitim Sistemimiz', path: '/egitim-sistemimiz' });
-        }
-        setPagesList(filtered);
-      } catch (e) {
-        console.error("Error processing pages:", e);
-      }
-    }, (error) => {
-      console.error("Error subscribing to pages:", error);
-    });
-    return () => unsubscribe();
-  }, []);
+    seedMissingPagesFromState();
+  }, [pagesLoaded, pages]);
 
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Genel Bakış', path: '/dadmin' },

@@ -501,7 +501,7 @@ export const liveFallbackData = {
               "label": "Kampüs Seçimi"
             },
             {
-              "required": false,
+              "required": true,
               "type": "select",
               "options": "Seans 1: 10:00, Seans 2: 16:00",
               "label": "Sınav Saati",
@@ -574,7 +574,8 @@ export const liveFallbackData = {
             "Optik formda kodlamaları kurşun kalemle yapınız."
           ],
           "titlePart1Color": "#002147",
-          "documentLogo": "https://lh3.googleusercontent.com/aida-public/AB6AXuAcW18movsC69qnz9zpsbzsrJLWPy_Geo5sAAAi9nqoC0YE-bdMj0AiEUe-Z78NoFFBpFQy5UuXaMmRO0quff6khOovxlJfE1ptuTa38PqzHcJhVeJMUlPxZqHhxVw08UApxaSzgRKctOtlTu4DtjMgzPIZdZ0WMLs8KuA96cHwv2jaeSc1OpVg0rX0eqzr2iTpWL0N0C_Y9PkoQ7IeERePRqYH46NNAxWyoW03nr17RN7GXuwfevi2RYWTPiQtM4pg9fysMIgmkuk",
+          "documentLogo": "/dost-logo-png.png",
+          "examDate": "5 Ocak 2027",
           "requiredDocuments": [
             "Nüfus Cüzdanı veya Kimlik Kartı",
             "Sınav Giriş Belgesi"

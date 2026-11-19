@@ -10,15 +10,18 @@ import BlockFormEditor from './BlockFormEditor';
 import Draggable from 'react-draggable';
 
 import { resolveMediaUrls } from '../lib/resolveMedia';
+import { useAdminStore } from '../store/adminStore';
+import { getCachedData, setCachedData } from '../lib/cache';
 
 export default function PageEditor() {
   const { pageId } = useParams();
   const navigate = useNavigate();
   const nodeRef = useRef(null);
+  const { pages: rawPages } = useAdminStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pageData, setPageData] = useState<any>(null);
-  const [pagesList, setPagesList] = useState<any[]>([]);
+  const pagesList = React.useMemo(() => rawPages.filter((p: any) => !p.isDeleted), [rawPages]);
   const [editorPos, setEditorPos] = useState({ x: window.innerWidth - 420 > 0 ? window.innerWidth - 420 : 20, y: 20 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
@@ -56,27 +59,22 @@ export default function PageEditor() {
   const [activeArrayItem, setActiveArrayItem] = useState<{ arrayKey: string, index: number } | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'pages'), (snapshot) => {
-      let fetchedPages = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
-        setPagesList(fetchedPages.filter((p: any) => !p.isDeleted));
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
     const fetchData = async () => {
       try {
         if (!pageId) return;
-        
-        // Fetch pages list
-        // pagesList is now populated via a separate effect
 
-        // Fetch current page
-        const docRef = doc(db, 'pages', pageId);
-        const docSnap = await getDoc(docRef);
+        // First check if page is already in admin store or localStorage cache
+        let sourceData: any = rawPages.find((p: any) => p.id === pageId) || getCachedData<any>(`page_${pageId}`, null);
+        if (!sourceData) {
+          const docRef = doc(db, 'pages', pageId);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            sourceData = docSnap.data() as any;
+          }
+        }
         
-        if (docSnap.exists()) {
-          const data = docSnap.data() as any;
+        if (sourceData) {
+          const data = JSON.parse(JSON.stringify(sourceData));
           
           if ((!data.blocks || data.blocks.length === 0) && pageId === 'egitim-sistemimiz') {
             import('../lib/defaultData').then((module) => {
@@ -373,6 +371,7 @@ export default function PageEditor() {
 
       console.log("Saving dataToSave:", dataToSave);
       await withTimeout(setDoc(doc(db, 'pages', pageId), dataToSave, { merge: true }), 15000);
+      setCachedData(`page_${pageId}`, dataToSave);
       resolveMediaUrls(dataToSave).then(resolved => setPageData(resolved));
       alert('Sayfa başarıyla kaydedildi!');
     } catch (e: any) {

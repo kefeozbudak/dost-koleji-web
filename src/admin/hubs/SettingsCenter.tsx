@@ -4,6 +4,8 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { withTimeout } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
 import MediaPickerModal from '../../components/MediaPickerModal';
+import { useAdminStore } from '../../store/adminStore';
+import { setCachedData } from '../../lib/cache';
 import {
   Globe,
   Search,
@@ -127,38 +129,24 @@ const defaultSettings: GeneralSettings = {
 };
 
 export default function SettingsCenter() {
+  const { generalSettings, settingsLoaded, ensureSettingsListeners } = useAdminStore();
   const [activeTab, setActiveTab] = useState<'general' | 'seo' | 'announcement' | 'social' | 'notifications' | 'system'>('general');
   const [settings, setSettings] = useState<GeneralSettings>(defaultSettings);
-  const [loading, setLoading] = useState(true);
+  const loading = !settingsLoaded;
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [cacheClearing, setCacheClearing] = useState(false);
 
-  // Load settings from Firestore
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        setLoading(true);
-        const docRef = doc(db, 'settings', 'general');
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          resolveMediaUrls({ ...defaultSettings, ...docSnap.data() }).then(resolved => setSettings(resolved));
-        } else {
-          // Initialize with default settings if document doesn't exist
-          await setDoc(docRef, { ...defaultSettings, createdAt: Date.now() });
-          setSettings(defaultSettings);
-        }
-      } catch (e) {
-        console.error('General Settings fetch error:', e);
-        showToast('Ayarlar yüklenirken bir hata oluştu.', 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
+    ensureSettingsListeners();
+  }, [ensureSettingsListeners]);
 
-    fetchSettings();
-  }, []);
+  useEffect(() => {
+    if (generalSettings) {
+      resolveMediaUrls({ ...defaultSettings, ...generalSettings }).then(resolved => setSettings(resolved));
+    }
+  }, [generalSettings]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ show: true, message, type });
@@ -176,6 +164,7 @@ export default function SettingsCenter() {
         updatedAt: Date.now()
       };
       await withTimeout(setDoc(docRef, updatedData, { merge: true }));
+      setCachedData('settings_general', updatedData);
       showToast('Genel ayarlar başarıyla güncellendi ve kaydedildi!');
     } catch (e) {
       console.error('Save error:', e);

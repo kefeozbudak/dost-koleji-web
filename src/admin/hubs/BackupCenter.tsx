@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, getAccessToken, loginWithGoogle, initAuth } from '../../lib/firebase';
+import { useAdminStore } from '../../store/adminStore';
 import { DatabaseBackup, DownloadCloud, History, CheckCircle2, AlertCircle, ShieldCheck, Download, RefreshCw, Sparkles } from 'lucide-react';
 
 export default function BackupCenter() {
@@ -64,32 +65,57 @@ export default function BackupCenter() {
   };
 
   const getFullBackupData = async () => {
-    const collections = ['settings', 'pages', 'forms', 'users'];
+    const storeState = useAdminStore.getState();
     const backupData: Record<string, any> = {
       meta: {
         exportedAt: new Date().toISOString(),
         site: 'Dost Koleji Web Platformu',
-        version: '2.0'
+        version: '2.2'
       }
     };
-    
-    for (const col of collections) {
-      const querySnapshot = await getDocs(collection(db, col));
-      backupData[col] = {};
-      querySnapshot.forEach((docSnap) => {
-        backupData[col][docSnap.id] = docSnap.data();
+
+    const arrayToMap = (items: any[]) => {
+      const map: Record<string, any> = {};
+      items.forEach((item) => {
+        if (item?.id) {
+          const { id, ...rest } = item;
+          map[id] = rest;
+        }
       });
+      return map;
+    };
+
+    if (storeState.pagesLoaded && storeState.pages.length > 0) {
+      backupData.pages = arrayToMap(storeState.pages);
+    } else {
+      const snap = await getDocs(collection(db, 'pages'));
+      backupData.pages = {};
+      snap.forEach((d) => { backupData.pages[d.id] = d.data(); });
     }
 
-    // Also include local forms backup if any offline entries exist
-    try {
-      const localForms = JSON.parse(localStorage.getItem('dost_forms_backup') || '[]');
-      if (localForms && localForms.length > 0) {
-        backupData['local_forms_cache'] = localForms;
-      }
-    } catch (e) {
-      console.warn(e);
+    if (storeState.formsLoaded) {
+      backupData.forms = arrayToMap(storeState.forms);
+    } else {
+      const snap = await getDocs(collection(db, 'forms'));
+      backupData.forms = {};
+      snap.forEach((d) => { backupData.forms[d.id] = d.data(); });
     }
+
+    if (storeState.usersLoaded && storeState.users.length > 0) {
+      backupData.users = arrayToMap(storeState.users);
+    } else {
+      const snap = await getDocs(collection(db, 'users'));
+      backupData.users = {};
+      snap.forEach((d) => { backupData.users[d.id] = d.data(); });
+    }
+
+    const settingsSnap = await getDocs(collection(db, 'settings'));
+    backupData.settings = {};
+    settingsSnap.forEach((d) => { backupData.settings[d.id] = d.data(); });
+
+    const ticketsSnap = await getDocs(collection(db, 'exam_tickets'));
+    backupData.exam_tickets = {};
+    ticketsSnap.forEach((d) => { backupData.exam_tickets[d.id] = d.data(); });
 
     return backupData;
   };
@@ -192,7 +218,7 @@ export default function BackupCenter() {
       const backupData = await res.json();
       
       // Restore collections
-      const collections = ['settings', 'pages', 'forms', 'users'];
+      const collections = ['settings', 'pages', 'forms', 'exam_tickets', 'users'];
       for (const col of collections) {
         if (backupData[col]) {
           const docs = Object.keys(backupData[col]);
@@ -200,11 +226,6 @@ export default function BackupCenter() {
             await setDoc(doc(db, col, docId), backupData[col][docId]);
           }
         }
-      }
-
-      // Restore local forms cache if exists
-      if (backupData['local_forms_cache']) {
-        localStorage.setItem('dost_forms_backup', JSON.stringify(backupData['local_forms_cache']));
       }
 
       setStatusMsg({ type: 'success', text: 'Tüm site verileri ve veritabanı yedeği başarıyla geri yüklendi! Sayfayı yenileyerek değişiklikleri görebilirsiniz.' });

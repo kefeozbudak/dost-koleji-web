@@ -35,9 +35,22 @@ import PopupCenter from "./admin/hubs/PopupCenter";
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const { role, setAuthData } = useAuthStore();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    return typeof window !== "undefined" && window.location.pathname.startsWith("/dadmin");
+  });
 
   useEffect(() => {
+    // Hydrate cached admin role immediately for instant /dadmin render
+    try {
+      const cachedAuth = localStorage.getItem("dost_auth_cache");
+      if (cachedAuth) {
+        const parsed = JSON.parse(cachedAuth);
+        if (parsed.role) {
+          setAuthData(parsed.role, parsed.allowedPages || []);
+        }
+      }
+    } catch (_) {}
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser && currentUser.email) {
@@ -47,6 +60,12 @@ export default function App() {
           if (userDoc.exists()) {
             const data = userDoc.data();
             setAuthData(data.role, data.allowedPages || []);
+            try {
+              localStorage.setItem(
+                "dost_auth_cache",
+                JSON.stringify({ email: currentUser.email, role: data.role, allowedPages: data.allowedPages || [] })
+              );
+            } catch (_) {}
           } else {
             if (currentUser.email === "yasinozbudak@gmail.com") {
               await import("firebase/firestore").then(({ setDoc }) => {
@@ -58,8 +77,17 @@ export default function App() {
                 });
               });
               setAuthData("super_admin", []);
+              try {
+                localStorage.setItem(
+                  "dost_auth_cache",
+                  JSON.stringify({ email: currentUser.email, role: "super_admin", allowedPages: [] })
+                );
+              } catch (_) {}
             } else {
               setAuthData("guest", []);
+              try {
+                localStorage.removeItem("dost_auth_cache");
+              } catch (_) {}
             }
           }
         } catch (e) {
@@ -72,6 +100,9 @@ export default function App() {
         }
       } else {
         setAuthData(null, []);
+        try {
+          localStorage.removeItem("dost_auth_cache");
+        } catch (_) {}
       }
       setLoading(false);
       runLibraryMigration();
@@ -79,7 +110,8 @@ export default function App() {
     return () => unsubscribe();
   }, [setAuthData]);
 
-  if (loading) {
+  const isAdminPath = typeof window !== "undefined" && window.location.pathname.startsWith("/dadmin");
+  if (loading && isAdminPath) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50">
         Yükleniyor...

@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const getStyle = (block: any, prefix: string) => {
+export const getStyle = (block: any, prefix: string = "container") => {
   const style: any = {};
   
   style.color = block.styles?.[prefix + "Color"] || (prefix === "container" || prefix === "" ? block.styles?.color : undefined) || undefined;

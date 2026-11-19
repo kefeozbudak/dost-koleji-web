@@ -880,7 +880,7 @@ export const defaultScholarshipPageData = [
       {
         name: 'exam_session',
         label: 'Sınav Saati',
-        required: false,
+        required: true,
         type: 'select',
         options: 'Seans 1: 10:00, Seans 2: 16:00'
       }
@@ -947,6 +947,8 @@ export const defaultScholarshipConfirmationPageData = [
     type: 'bursluluk_confirmation',
     successIcon: 'check_circle',
     documentTitle: 'Bursluluk Sınavı Giriş Belgesi',
+    documentLogo: '/dost-logo-png.png',
+    examDate: '5 Ocak 2027',
     buttons: [
       {
         icon: 'download',
@@ -978,7 +980,6 @@ export const defaultScholarshipConfirmationPageData = [
     },
     titlePart1Color: '#002147',
     subtitle: 'Sınav giriş belgeniz aşağıda oluşturulmuştur. Lütfen sınav günü yanınızda bulundurunuz. Belgenizi indirip yazdırarak sınava getirmeyi unutmayınız.',
-    documentLogo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAcW18movsC69qnz9zpsbzsrJLWPy_Geo5sAAAi9nqoC0YE-bdMj0AiEUe-Z78NoFFBpFQy5UuXaMmRO0quff6khOovxlJfE1ptuTa38PqzHcJhVeJMUlPxZqHhxVw08UApxaSzgRKctOtlTu4DtjMgzPIZdZ0WMLs8KuA96cHwv2jaeSc1OpVg0rX0eqzr2iTpWL0N0C_Y9PkoQ7IeERePRqYH46NNAxWyoW03nr17RN7GXuwfevi2RYWTPiQtM4pg9fysMIgmkuk',
     titlePart2Color: '#002147',
     requiredDocuments: [
       'Nüfus Cüzdanı veya Kimlik Kartı',

@@ -1,8 +1,362 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Global Default-Deny Safety Net (Pillar 1)
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // PRIMITIVE HELPERS
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isHighEntropyId(id) {
+      return id is string && id.size() >= 16 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserDocId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 150 && id.matches('^[a-zA-Z0-9._%+\\-@]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedSuperAdmin() {
+      return isSignedIn() && request.auth.token.email == 'yasinozbudak@gmail.com';
+    }
+
+    function isSuperAdmin() {
+      return isBootstrappedSuperAdmin() || (
+        isSignedIn() &&
+        request.auth.token.email is string &&
+        exists(/databases/$(database)/documents/users/$(request.auth.token.email)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'super_admin'
+      );
+    }
+
+    function isAdmin() {
+      return isBootstrappedSuperAdmin() || (
+        isSignedIn() &&
+        request.auth.token.email is string &&
+        exists(/databases/$(database)/documents/users/$(request.auth.token.email)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role in [
+          'super_admin',
+          'editor',
+          'scholarship_admin',
+          'club_admin',
+          'restricted'
+        ]
+      );
+    }
+
+    // =========================================================================
+    // VALIDATION BLUEPRINTS (Pillar 2)
+    // =========================================================================
+    function isValidFormCreate(data) {
+      return data.keys().hasAll(['type', 'createdAt', 'data']) &&
+        data.keys().hasOnly(['type', 'formName', 'candidateNo', 'ticketId', 'status', 'createdAt', 'data']) &&
+        data.type is string && data.type.size() >= 2 && data.type.size() <= 64 &&
+        data.type in [
+          'bursluluk_basvuru_formu',
+          'bursluluk_exam_form',
+          'scholarship_form',
+          'bursluluk_form',
+          'pre_registration_form',
+          'club_registration_form',
+          'career_application',
+          'contact_form',
+          'quick_contact_form',
+          'assistant_form',
+          'newsletter',
+          'contact',
+          'club',
+          'scholarship',
+          'chat'
+        ] &&
+        (!('formName' in data) || (data.formName is string && data.formName.size() <= 150)) &&
+        (!('candidateNo' in data) || (data.candidateNo is string && data.candidateNo.size() <= 32)) &&
+        (!('ticketId' in data) || (data.ticketId is string && data.ticketId.size() <= 64)) &&
+        (!('status' in data) || (data.status is string && data.status in ['new', 'pending'])) &&
+        data.createdAt is number && data.createdAt > 1700000000000 &&
+        data.data is map && data.data.size() >= 1 && data.data.size() <= 50;
+    }
+
+    function isValidFormAdminWrite(data) {
+      return data.keys().hasAll(['type', 'data']) &&
+        data.type is string && data.type.size() <= 64 &&
+        data.data is map && data.data.size() <= 60;
+    }
+
+    function isValidExamTicket(data) {
+      return data.keys().hasAll([
+          'candidateNo',
+          'studentName',
+          'maskedTc',
+          'grade',
+          'campus',
+          'examSession',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'candidateNo',
+          'studentName',
+          'maskedTc',
+          'grade',
+          'campus',
+          'examSession',
+          'examDate',
+          'createdAt'
+        ]) &&
+        data.candidateNo is string && data.candidateNo.size() >= 4 && data.candidateNo.size() <= 32 &&
+        data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 120 &&
+        data.maskedTc is string && data.maskedTc.size() <= 16 &&
+        data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 64 &&
+        data.campus is string && data.campus.size() >= 1 && data.campus.size() <= 120 &&
+        data.examSession is string && data.examSession.size() >= 1 && data.examSession.size() <= 64 &&
+        (!('examDate' in data) || (data.examDate is string && data.examDate.size() <= 64)) &&
+        data.createdAt is number && data.createdAt > 1700000000000;
+    }
+
+    function isValidReportCreate(data) {
+      return data.keys().hasAll(['type', 'studentName', 'phone', 'createdAt']) &&
+        data.keys().hasOnly([
+          'type',
+          'studentName',
+          'parentName',
+          'phone',
+          'school',
+          'results',
+          'subjects',
+          'createdAt',
+          'read'
+        ]) &&
+        data.type == 'lgs_calculator' &&
+        data.studentName is string && data.studentName.size() >= 2 && data.studentName.size() <= 120 &&
+        (!('parentName' in data) || (data.parentName is string && data.parentName.size() <= 120)) &&
+        data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 32 &&
+        (!('school' in data) || (data.school is string && data.school.size() <= 160)) &&
+        (!('results' in data) || (data.results is map && data.results.size() <= 20)) &&
+        (!('subjects' in data) || ((data.subjects is map || data.subjects is list) && data.subjects.size() <= 20)) &&
+        (!('read' in data) || data.read == false) &&
+        data.createdAt is number && data.createdAt > 1700000000000;
+    }
+
+    function isValidUserRecord(data, userEmail) {
+      return data.keys().hasAll(['email', 'role', 'createdAt']) &&
+        data.keys().hasOnly(['email', 'role', 'allowedPages', 'createdAt']) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+        data.email == userEmail &&
+        data.role is string &&
+        data.role in ['super_admin', 'editor', 'scholarship_admin', 'club_admin', 'restricted'] &&
+        (!('allowedPages' in data) || (data.allowedPages is list && data.allowedPages.size() <= 30)) &&
+        data.createdAt is number;
+    }
+
+    function isValidTrafficLog(data) {
+      return data.keys().hasAll([
+          'path',
+          'pageTitle',
+          'timestamp',
+          'dateStr',
+          'hour',
+          'device',
+          'browser',
+          'referrer',
+          'city'
+        ]) &&
+        data.keys().hasOnly([
+          'path',
+          'pageTitle',
+          'timestamp',
+          'dateStr',
+          'hour',
+          'device',
+          'browser',
+          'referrer',
+          'city'
+        ]) &&
+        data.path is string && data.path.size() >= 1 && data.path.size() <= 200 &&
+        data.pageTitle is string && data.pageTitle.size() >= 1 && data.pageTitle.size() <= 200 &&
+        data.timestamp is number && data.timestamp > 1700000000000 &&
+        data.dateStr is string && data.dateStr.size() == 10 &&
+        data.hour is number && data.hour >= 0 && data.hour <= 23 &&
+        data.device is string && data.device.size() <= 32 &&
+        data.browser is string && data.browser.size() <= 32 &&
+        data.referrer is string && data.referrer.size() <= 64 &&
+        data.city is string && data.city.size() <= 64;
+    }
+
+    function isValidTrafficDaily(data) {
+      return data.keys().hasAll(['dateStr', 'views', 'visitors']) &&
+        data.keys().hasOnly(['dateStr', 'views', 'visitors', 'updatedAt', 'created']) &&
+        data.dateStr is string && data.dateStr.size() == 10 &&
+        data.views is number && data.views >= 0 &&
+        data.visitors is number && data.visitors >= 0 &&
+        (!('updatedAt' in data) || data.updatedAt is number) &&
+        (!('created' in data) || data.created is number);
+    }
+
+    function isValidTrafficPage(data) {
+      return data.keys().hasAll(['path', 'title', 'views']) &&
+        data.keys().hasOnly(['path', 'title', 'views']) &&
+        data.path is string && data.path.size() >= 1 && data.path.size() <= 200 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.views is number && data.views >= 0;
+    }
+
+    // =========================================================================
+    // COLLECTION MATCH BLOCKS
+    // =========================================================================
+
+    // 1. Connectivity Probe
+    match /test/{probeId} {
+      allow get: if probeId == 'connection';
+      allow list, create, update, delete: if false;
+    }
+
+    // 2. Site Settings (Public showcase settings readable; admin manages all)
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && (
+        settingId in ['header', 'footer', 'general', 'assistant'] || isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(settingId) && incoming() is map && incoming().size() <= 100;
+      allow delete: if isAdmin() && isValidId(settingId);
+    }
+
+    // 3. Dynamic CMS Pages
+    match /pages/{pageId} {
+      allow get: if isValidId(pageId) && (
+        resource == null ||
+        (existing().get('isDeleted', false) != true && existing().get('isHidden', false) != true) ||
+        isAdmin()
+      );
+      allow list: if (request.query.limit != null && request.query.limit <= 5) ||
+        (existing().get('isDeleted', false) != true && existing().get('isHidden', false) != true) ||
+        isAdmin();
+      allow create, update: if isAdmin() && isValidId(pageId) && incoming() is map && incoming().size() <= 200;
+      allow delete: if isAdmin() && isValidId(pageId);
+    }
+
+    // 4. Promotional Popups
+    match /popups/{popupId} {
+      allow get: if isValidId(popupId) && (
+        resource == null ||
+        existing().get('status', '') in ['AKTİF', 'AKTIF'] ||
+        isAdmin()
+      );
+      allow list: if existing().get('status', '') in ['AKTİF', 'AKTIF'] || isAdmin();
+      allow create, update: if isAdmin() && isValidId(popupId) && incoming() is map && incoming().size() <= 60;
+      allow delete: if isAdmin() && isValidId(popupId);
+    }
+
+    // 5. Media Assets (Single asset resolution allowed; listing & mutations admin-only)
+    match /media/{mediaId} {
+      allow get: if isValidId(mediaId);
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(mediaId) && incoming() is map && incoming().size() <= 20;
+      allow delete: if isAdmin() && isValidId(mediaId);
+    }
+
+    // 6. Forms Collection (STRICT PII ISOLATION: Write-only for public, zero public reads!)
+    match /forms/{formId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(formId) && (isValidFormCreate(incoming()) || (isAdmin() && isValidFormAdminWrite(incoming())));
+      allow update: if isAdmin() && isValidId(formId) && isValidFormAdminWrite(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'read', 'notes', 'updatedAt']) ||
+        isSuperAdmin()
+      );
+      allow delete: if isAdmin() && isValidId(formId);
+    }
+
+    // 7. PII-Isolated Exam Entry Tickets (Masked TC only; unguessable 16+ char ID; no public list!)
+    match /exam_tickets/{ticketId} {
+      allow get: if isHighEntropyId(ticketId) || (isAdmin() && isValidId(ticketId));
+      allow list: if isAdmin();
+      allow create: if (isHighEntropyId(ticketId) && isValidExamTicket(incoming())) || (isAdmin() && isValidId(ticketId));
+      allow update, delete: if isAdmin() && isValidId(ticketId);
+    }
+
+    // 8. LGS Calculator Reports (Write-only for public, admin-only read/manage)
+    match /reports/{reportId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(reportId) && (isValidReportCreate(incoming()) || isAdmin());
+      allow update: if isAdmin() && isValidId(reportId) && incoming() is map && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['read', 'status', 'notes']) ||
+        isSuperAdmin()
+      );
+      allow delete: if isAdmin() && isValidId(reportId);
+    }
+
+    // 9. Admin Users & RBAC Directory (Self or Admin read; Super Admin write only!)
+    match /users/{userEmail} {
+      allow get: if isValidUserDocId(userEmail) && (
+        (isSignedIn() && request.auth.token.email == userEmail) ||
+        isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isSuperAdmin() && isValidUserDocId(userEmail) && isValidUserRecord(incoming(), userEmail);
+      allow update: if isSuperAdmin() && isValidUserDocId(userEmail) && isValidUserRecord(incoming(), userEmail);
+      allow delete: if isSuperAdmin() && isValidUserDocId(userEmail) && userEmail != 'yasinozbudak@gmail.com';
+    }
+
+    // 10. Visitor Traffic Logs (Session-deduplicated write-only for public; admin-only read)
+    match /traffic_logs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(logId) && (isValidTrafficLog(incoming()) || isAdmin());
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(logId);
+    }
+
+    // 11. Sharded Daily Traffic Counters (Atomic +1 increment only for public; admin-only read)
+    match /traffic_daily/{shardId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(shardId) && isValidTrafficDaily(incoming()) && (
+        (incoming().views == 1 && incoming().visitors in [0, 1]) || isAdmin()
+      );
+      allow update: if isValidId(shardId) && isValidTrafficDaily(incoming()) && (
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['dateStr', 'views', 'visitors', 'updatedAt']) &&
+          incoming().dateStr == existing().dateStr &&
+          incoming().views == existing().views + 1 &&
+          incoming().visitors in [existing().visitors, existing().visitors + 1]
+        ) || isAdmin()
+      );
+      allow delete: if isAdmin() && isValidId(shardId);
+    }
+
+    // 12. Sharded Per-Page Traffic Counters (Atomic +1 increment only for public; admin-only read)
+    match /traffic_pages/{shardId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(shardId) && isValidTrafficPage(incoming()) && (
+        incoming().views == 1 || isAdmin()
+      );
+      allow update: if isValidId(shardId) && isValidTrafficPage(incoming()) && (
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['path', 'title', 'views']) &&
+          incoming().views == existing().views + 1
+        ) || isAdmin()
+      );
+      allow delete: if isAdmin() && isValidId(shardId);
+    }
+
+    // 13. Traffic Summary Metadata (Admin-managed)
+    match /traffic_stats/{statId} {
+      allow get, list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(statId) && incoming() is map && incoming().size() <= 20;
+      allow delete: if isAdmin() && isValidId(statId);
     }
   }
 }

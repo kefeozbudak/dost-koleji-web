@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { ShieldCheck, UserPlus, Trash2, Edit, Key, X } from 'lucide-react';
+import { useAdminStore } from '../../store/adminStore';
 
 interface UserData {
   id: string; // The email
@@ -25,8 +26,9 @@ const AVAILABLE_PAGES = [
 ];
 
 export default function UsersCenter() {
-  const [users, setUsers] = useState<UserData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { users: rawUsers, usersLoaded, ensureUsersListener } = useAdminStore();
+  const users = rawUsers as UserData[];
+  const loading = !usersLoaded;
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -37,20 +39,8 @@ export default function UsersCenter() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      const snapshot = await getDocs(collection(db, 'users'));
-      const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserData));
-      setUsers(fetched);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
-  };
+    ensureUsersListener();
+  }, [ensureUsersListener]);
 
   const handleOpenModal = (user?: UserData) => {
     if (user) {
@@ -87,7 +77,6 @@ export default function UsersCenter() {
       }, { merge: true });
       
       setIsModalOpen(false);
-      fetchUsers();
     } catch (err) {
       console.error(err);
       alert('Kullanıcı kaydedilirken hata oluştu.');
@@ -102,7 +91,6 @@ export default function UsersCenter() {
     if (confirm('Kullanıcıyı silmek istediğinize emin misiniz?')) {
       try {
         await deleteDoc(doc(db, 'users', id));
-        setUsers(users.filter(u => u.id !== id));
       } catch (err) {
         console.error(err);
       }

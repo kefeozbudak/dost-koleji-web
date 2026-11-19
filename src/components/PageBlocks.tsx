@@ -3,12 +3,35 @@ import React, { useState, useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import LgsCalculator from "./LgsCalculator";
 import {
-  collection, addDoc, doc, getDoc } from "firebase/firestore";
-import { db, storage } from "../lib/firebase";
+  collection, addDoc, doc, getDoc, setDoc } from "firebase/firestore";
+import { db, storage, auth } from "../lib/firebase";
+import { getCachedData, setCachedData, isCacheFresh, fetchWithDedup } from "../lib/cache";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { Link, useNavigate } from "react-router-dom";
 import TextWithKvkkLink from "./TextWithKvkkLink";
 import IconField, { IconPreview } from "./IconField";
 import SmartLink from "./SmartLink";
+import {
+  isValidTcKimlik,
+  maskTcKimlik,
+  parseExamSessionTime,
+  generateExamTicketFiles,
+  triggerBlobDownload,
+  shareExamTicketFile,
+  isInAppWebView,
+} from "../lib/examTicketExport";
+import {
+  computeDeterministicTicketId,
+  submitFormResilient,
+  saveFormDraft,
+  loadFormDraft,
+  clearFormDraft,
+  getCampaignAttribution,
+  isCampusSessionClosed,
+  downloadExamCalendarIcs,
+  buildWhatsAppTicketUrl,
+  buildCampusMapsUrl,
+} from "../lib/scholarshipCampaign";
 import { getHeroOverlayClass, getHeroOverlayStyle,  getStyle, getTitleStyle, getSubtitleStyle, getDescStyle, getBadgeStyle, getButtonStyle, getItemContainerStyle, getItemTitleStyle, getItemDescStyle, getItemButtonStyle, getTitlePart1Style, getTitlePart2Style, getValidText, getValidStyle, getIndividualButtonStyle, fallbackImages, getImageStyle, getCardStyle, getCardClass, getCardTitleStyle, getCardDescStyle, extractAlignClass, removeAlignStyles, getIconStyle, getCardButtonStyle  } from "../lib/styleUtils";
 import { ManagementHeroBlock, ManagementRectorBlock, ManagementTeamGridBlock } from './ManagementBlocks';
 import { SchoolHeroBlock, SchoolBentoBlock, SchoolBranchesBlock, SchoolPedagogyBlock, SchoolLgsBlock, HighSchoolHeroBlock, HighSchoolProgramsBlock } from './SchoolBlocks';
@@ -1019,10 +1042,19 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                 ? DEFAULT_QUICK_CONTACT_INPUTS
                 : DEFAULT_PRE_REGISTRATION_INPUTS;
 
-  // Migration for old pre_registration_form grade options
-  const hasKvkk = defaultInputs.some((i: any) => i.name === "kvkk_approval" || (i.label && i.label.includes("KVKK")));
+  // Ensure scholarship form always enforces required TC, exam session, and KVKK consent even if CMS inputs are older
+  if (type === "bursluluk_exam_form") {
+    defaultInputs = defaultInputs.map((inp: any) => {
+      if (inp.name === "student_tc" || inp.name === "exam_session") {
+        return { ...inp, required: true };
+      }
+      return inp;
+    });
+  }
+
+  const hasKvkk = defaultInputs.some((i: any) => i.type === "checkbox" && (i.name === "kvkk_approval" || i.name === "kvkkConsent" || i.name === "kvkk" || (i.label && i.label.includes("KVKK"))));
   if (!hasKvkk && defaultInputs.length > 0) {
-    defaultInputs = [...defaultInputs, { id: "kvkk_auto", name: "kvkk_approval", type: "checkbox", label: "Gizlilik Politikası ve KVKK metnini okudum, onaylıyorum.", required: true, fullWidth: true }];
+    defaultInputs = [...defaultInputs, { id: "kvkk_auto", name: "kvkk_approval", type: "checkbox", label: "KVKK Aydınlatma Metni'ni ve Gizlilik Politikası'nı okudum, kişisel verilerimin başvuru süreçleri kapsamında işlenmesini onaylıyorum.", required: true, fullWidth: true }];
   }
   if (type === "pre_registration_form" && block.inputs && block.inputs.length > 0) {
     defaultInputs = defaultInputs.map((inp: any) => {
@@ -1056,13 +1088,30 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
             { id: "piyano", label: "Piyano", icon: "piano" }
           ]
         : [];
-  const [formData, setFormData] = useState<any>({});
+  const [formData, setFormData] = useState<any>(() => loadFormDraft(type) || {});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submittedDocId, setSubmittedDocId] = useState<string>("");
+  const [submissionMeta, setSubmissionMeta] = useState<{
+    isExisting?: boolean;
+    syncedOffline?: boolean;
+  }>({});
+  const [formError, setFormError] = useState<string>("");
   const [botValue, setBotValue] = useState("");
+  const [generalSettingsState, setGeneralSettingsState] = useState<any>(() =>
+    getCachedData("settings_general", null)
+  );
 
-  // set initial states
+  useEffect(() => {
+    const syncGeneral = () => {
+      const latest = getCachedData("settings_general", null);
+      if (latest) setGeneralSettingsState(latest);
+    };
+    window.addEventListener("dost:bootstrap-ready", syncGeneral);
+    return () => window.removeEventListener("dost:bootstrap-ready", syncGeneral);
+  }, []);
+
+  // set initial states while preserving any saved draft values
   useEffect(() => {
     setFormData((prev: any) => {
       const initData: any = { ...prev };
@@ -1092,6 +1141,7 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
   }, [defaultInputs, defaultClubs, type]);
 
   const handleChange = (name: string, value: any) => {
+    if (formError) setFormError("");
     let finalValue = value;
     const lowerName = name.toLowerCase();
 
@@ -1120,22 +1170,76 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
           newData.campus = "Eryaman Kampüsü";
         }
       }
+      // Bursluluk Sınavı: Ümitköy ve Oran kampüslerinde 8, 9, 10, 11. sınıflar sınava alınmaz (sadece 4, 5, 6, 7)
+      // Ayrıca seçilen kampüste kontenjanı dolmuş bir seans seçiliyse otomatik sıfırla
+      if (
+        (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") &&
+        (name === "campus_preference" || name === "campus" || name === "campus_select")
+      ) {
+        const cLow = String(finalValue || "").toLowerCase();
+        if (cLow.includes("ümitköy") || cLow.includes("umitkoy") || cLow.includes("oran")) {
+          ["grade_level", "grade", "studentClass"].forEach((gKey) => {
+            if (newData[gKey] && /(^|\s)(8|9|10|11)\./.test(String(newData[gKey]))) {
+              newData[gKey] = "";
+            }
+          });
+        }
+        ["exam_session", "examSession"].forEach((sKey) => {
+          if (newData[sKey] && isCampusSessionClosed(generalSettingsState, finalValue, newData[sKey])) {
+            newData[sKey] = "";
+          }
+        });
+      }
+
+      saveFormDraft(type, newData);
       return newData;
     });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
 
     // 1. Bot & Spam Protection (Honeypot)
     if (botValue) {
-      console.log("Bot detected, ignoring submission.");
       setSubmitted(true);
       return;
     }
 
     // 2. Double Submit Prevention
     if (submitting) return;
+
+    // 3. Strict Validation for TC Kimlik, Phone & KVKK Consent
+    for (const inp of defaultInputs) {
+      if (inp.type === "section_title") continue;
+      const lName = String(inp.name || "").toLowerCase();
+      const val = formData[inp.name];
+
+      if (lName === "tc" || lName.includes("_tc") || lName.includes("kimlik")) {
+        const cleanTc = String(val || "").replace(/\D/g, "");
+        if ((inp.required || type === "bursluluk_exam_form") && !cleanTc) {
+          setFormError("Lütfen 11 haneli T.C. Kimlik Numarasını giriniz.");
+          return;
+        }
+        if (cleanTc && !isValidTcKimlik(cleanTc)) {
+          setFormError("Girilen T.C. Kimlik Numarası geçersizdir. Lütfen kontrol edip 11 haneli geçerli kimlik numaranızı giriniz.");
+          return;
+        }
+      }
+
+      if (inp.required && (lName.includes("phone") || lName.includes("tel"))) {
+        const cleanPhone = String(val || "").replace(/\D/g, "");
+        if (cleanPhone.length < 10) {
+          setFormError("Lütfen geçerli bir cep telefonu numarası giriniz (Örn: 05XX XXX XX XX).");
+          return;
+        }
+      }
+
+      if (inp.type === "checkbox" && inp.required && !val) {
+        setFormError("Devam etmek için lütfen KVKK Aydınlatma Metni onay kutucuğunu işaretleyiniz.");
+        return;
+      }
+    }
 
     setSubmitting(true);
     try {
@@ -1144,10 +1248,8 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
       for (const key of Object.keys(processedData)) {
         if (processedData[key] instanceof File) {
           const file = processedData[key];
-          // We must convert file to base64 string to store in Firestore without Firebase Storage
-          // Max size around 700KB to fit within 1MB Firestore limit after base64 encoding
           if (file.size > 700 * 1024) {
-            alert("Dosya boyutu çok büyük. Lütfen 700KB'dan küçük bir dosya yükleyiniz.");
+            setFormError("Dosya boyutu çok büyük. Lütfen 700KB'dan küçük bir dosya yükleyiniz.");
             setSubmitting(false);
             return;
           }
@@ -1163,38 +1265,74 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
             size: file.size,
             type: file.type,
             isUploaded: true,
-            dataUrl: base64String // Store actual base64 content
+            dataUrl: base64String
           };
         }
       }
 
-      if (submitForm) {
-        const resId = await submitForm(processedData);
-        if (resId) setSubmittedDocId(resId);
-      } else {
-        const docRef = await addDoc(collection(db, "forms"), {
-          type: type,
-          createdAt: Date.now(),
-          data: processedData,
-        });
-        if (docRef?.id) setSubmittedDocId(docRef.id);
+      if (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") {
+        const chosenCampus = formData.campus_preference || formData.campus || formData.campus_select || "";
+        const chosenSession = formData.exam_session || formData.examSession || "";
+        if (chosenCampus && chosenSession && isCampusSessionClosed(generalSettingsState, chosenCampus, chosenSession)) {
+          setFormError("Seçtiğiniz sınav seansının kontenjanı dolmuştur. Lütfen diğer seansı veya alternatif kampüsü seçiniz.");
+          setSubmitting(false);
+          return;
+        }
       }
-      setSubmitted(true);
-      setTimeout(() => {
-        setSubmitted(false);
-        // reset form
-        const resetData: any = {};
-        defaultInputs.forEach((inp: any) => {
-          if (inp.type !== "section_title") {
-            resetData[inp.name] = inp.type === "checkbox" ? false : "";
-          }
+
+      const attribution = getCampaignAttribution();
+      const processedWithAttribution = {
+        ...processedData,
+        ...attribution,
+      };
+
+      if (submitForm) {
+        const res = await submitForm(processedWithAttribution);
+        if (typeof res === "string") {
+          setSubmittedDocId(res);
+          setSubmissionMeta({});
+        } else if (res && typeof res === "object") {
+          if (res.id) setSubmittedDocId(res.id);
+          setSubmissionMeta({
+            isExisting: Boolean(res.isExisting),
+            syncedOffline: Boolean(res.syncedOffline),
+          });
+        }
+      } else {
+        const formDocRef = doc(collection(db, "forms"));
+        await submitFormResilient({
+          formId: formDocRef.id,
+          formPayload: {
+            type: type,
+            status: "new",
+            createdAt: Date.now(),
+            data: processedWithAttribution,
+          },
+          allowOfflineQueue: true,
         });
-        if (type === "club_registration_form") resetData["club"] = "";
-        setFormData(resetData);
-      }, 15000);
+        setSubmittedDocId(formDocRef.id);
+      }
+
+      clearFormDraft(type);
+      setSubmitted(true);
+
+      // Do NOT auto-reset scholarship confirmation screen after 15 seconds so parents never lose their Exam Entry Ticket link!
+      if (type !== "bursluluk_exam_form") {
+        setTimeout(() => {
+          setSubmitted(false);
+          const resetData: any = {};
+          defaultInputs.forEach((inp: any) => {
+            if (inp.type !== "section_title") {
+              resetData[inp.name] = inp.type === "checkbox" ? false : "";
+            }
+          });
+          if (type === "club_registration_form") resetData["club"] = "";
+          setFormData(resetData);
+        }, 15000);
+      }
     } catch (error) {
       console.error("Form error:", error);
-      alert("Bir hata oluştu. Lütfen tekrar deneyiniz.");
+      setFormError("Başvurunuz gönderilirken bir bağlantı hatası oluştu. Lütfen internet bağlantınızı kontrol edip tekrar deneyiniz.");
     } finally {
       setSubmitting(false);
     }
@@ -1231,19 +1369,27 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
               </span>
             </div>
             <h3 className="text-2xl font-bold text-[#002147] whitespace-normal md:whitespace-pre-line">
-              Bursluluk Sınavı Başvurunuz Başarıyla Alındı!
+              {submissionMeta.isExisting
+                ? "Kaydınız Sistemde Mevcuttur!"
+                : "Bursluluk Sınavı Başvurunuz Başarıyla Alındı!"}
             </h3>
             <p className={`text-slate-600 max-w-md ${getAlignClass(block)} text-sm leading-relaxed whitespace-normal md:whitespace-pre-line`}>
-              Sınav giriş belgeniz oluşturulmuştur. Belgenizi hemen görüntülemek
-              ve indirmek için aşağıdaki butona tıklayabilirsiniz.
+              {submissionMeta.isExisting
+                ? "Bu T.C. Kimlik Numarası ile daha önce oluşturulmuş aktif başvurunuz bulundu. Mükerrer kayıt açılmadan mevcut Sınav Giriş Belgeniz hazırlandı."
+                : "Sınav giriş belgeniz oluşturulmuştur. Belgenizi hemen görüntülemek, PDF olarak indirmek veya WhatsApp'a kaydetmek için aşağıdaki butona tıklayabilirsiniz."}
             </p>
-            <a
-              href={
+            {submissionMeta.syncedOffline && (
+              <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-4 py-2.5 rounded-xl max-w-md">
+                İnternet bağlantınız zayıf olduğu için başvurunuz güvenli cihaz kuyruğuna alındı; bağlantı sağlandığında otomatik olarak merkeze iletilecektir. Giriş belgenizi hemen indirebilirsiniz.
+              </p>
+            )}
+            <Link
+              to={
                 submittedDocId
                   ? `/bursluluk-basvuru-onay?id=${submittedDocId}`
                   : `/bursluluk-basvuru-onay`
               }
-              className="px-2 md:px-6 py-3.5 bg-[#002147] text-white font-bold rounded-xl hover:bg-[#002147]/90 transition-all text-sm inline-flex items-center gap-2 shadow-lg hover:shadow-xl cursor-pointer whitespace-normal md:whitespace-pre-line"
+              className="px-5 md:px-7 py-4 bg-[#002147] text-white font-bold rounded-xl hover:bg-[#002147]/90 transition-all text-sm inline-flex items-center gap-2 shadow-lg hover:shadow-xl cursor-pointer whitespace-normal md:whitespace-pre-line"
             >
               <span
                 className="material-symbols-outlined whitespace-normal md:whitespace-pre-line"
@@ -1253,7 +1399,7 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                 badge
               </span>
               Sınav Giriş Belgesini Görüntüle ve İndir
-            </a>
+            </Link>
           </div>
         ) : (type === "contact_form" || type === "quick_contact_form") ? (
           <div
@@ -1314,6 +1460,13 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
             tabIndex={-1}
             autoComplete="off"
           />
+
+          {formError && (
+            <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-semibold flex items-start gap-3">
+              <span className="material-symbols-outlined text-red-600 text-xl shrink-0" translate="no" aria-hidden="true">error</span>
+              <span>{formError}</span>
+            </div>
+          )}
 
           {defaultInputs.length === 0 ? (
             <div
@@ -1471,14 +1624,17 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                     opts.push("Diğer / Genel Başvuru");
                   }
 
-                  // Bursluluk Sınavı 8. Sınıf Filtresi (Ümitköy ve Oran kampüslerinde 8. sınıf gizlenir)
-                  if (
-                    (type === "bursluluk_sinavi" ||
+                  // Bursluluk Sınavı Kampüs-Sınıf Filtresi (Ümitköy ve Oran kampüslerinde sadece 4, 5, 6, 7. sınıflar açıktır)
+                  const isScholarshipGradeField =
+                    (type === "bursluluk_exam_form" ||
+                      type === "bursluluk_sinavi" ||
                       type === "scholarship_form") &&
                     (input.name === "grade" ||
                       input.name === "studentClass" ||
-                      input.name === "grade_level")
-                  ) {
+                      input.name === "grade_level");
+                  let isRestrictedMiddleSchoolCampus = false;
+
+                  if (isScholarshipGradeField) {
                     const selectedCampus = String(
                       formData.campus ||
                         formData.campus_preference ||
@@ -1490,14 +1646,29 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                       selectedCampus.includes("umitkoy") ||
                       selectedCampus.includes("oran")
                     ) {
-                      opts = opts.filter((opt: string) => !opt.includes("8."));
-
-                      // Eğer şu anda seçili olan değer '8. Sınıf' ise, değeri sıfırla
-                      if (String(formData[input.name]).includes("8.")) {
-                        setTimeout(() => handleChange(input.name, ""), 0);
-                      }
+                      isRestrictedMiddleSchoolCampus = true;
+                      opts = opts.filter(
+                        (opt: string) => !/(^|\s)(8|9|10|11)\./.test(opt),
+                      );
                     }
                   }
+
+                  const isScholarshipSessionField =
+                    (type === "bursluluk_exam_form" ||
+                      type === "bursluluk_sinavi" ||
+                      type === "scholarship_form") &&
+                    (input.name === "exam_session" || input.name === "examSession");
+
+                  const currentCampusSelection =
+                    formData.campus_preference || formData.campus || formData.campus_select || "";
+
+                  const allSessionsClosedForCampus =
+                    isScholarshipSessionField &&
+                    Boolean(currentCampusSelection) &&
+                    opts.length > 0 &&
+                    opts.every((opt: string) =>
+                      isCampusSessionClosed(generalSettingsState, currentCampusSelection, opt)
+                    );
 
                   const isHighSchoolSelected = type === "pre_registration_form" && typeof formData.grade === "string" && (formData.grade.includes("Anadolu Lisesi") || formData.grade.includes("Fen Lisesi"));
                   const isCampusField = input.name === "campus";
@@ -1530,21 +1701,39 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                         }
                         className={
                           isStyledForm
-                            ? `w-full px-4 py-3 rounded-lg border border-border-subtle bg-surface-background text-text-main font-body-md focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldDisableCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
-                            : `w-full px-4 py-3 bg-surface-container-lowest border border-border-subtle rounded-lg font-body-md text-on-surface focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldDisableCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
+                            ? `w-full px-4 py-3 rounded-lg border border-border-subtle bg-surface-background text-text-main font-body-md focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%20%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldDisableCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
+                            : `w-full px-4 py-3 bg-surface-container-lowest border border-border-subtle rounded-lg font-body-md text-on-surface focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%20%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldDisableCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
                         }
                       >
                         <option disabled value="">
                           {input.placeholder || "Seçiniz"}
                         </option>
-                        {opts.map((opt: string, optIdx: number) => (
-                          <option key={`${inputKey}_opt_${optIdx}`} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
+                        {opts.map((opt: string, optIdx: number) => {
+                          const sessionFull =
+                            isScholarshipSessionField &&
+                            Boolean(currentCampusSelection) &&
+                            isCampusSessionClosed(generalSettingsState, currentCampusSelection, opt);
+                          return (
+                            <option
+                              key={`${inputKey}_opt_${optIdx}`}
+                              value={opt}
+                              disabled={sessionFull}
+                            >
+                              {sessionFull ? `${opt} (Kontenjan Doldu)` : opt}
+                            </option>
+                          );
+                        })}
                       </select>
                       {shouldDisableCampus && (
                         <p className="text-xs text-blue-600 mt-1">Lise seviyesi eğitimimiz sadece Eryaman kampüsümüzde mevcuttur.</p>
+                      )}
+                      {isRestrictedMiddleSchoolCampus && (
+                        <p className="text-xs text-blue-600 mt-1">Ümitköy ve Oran kampüslerimizde bursluluk sınavı 4, 5, 6 ve 7. sınıf kademelerinde uygulanmaktadır.</p>
+                      )}
+                      {allSessionsClosedForCampus && (
+                        <p className="text-xs font-semibold text-amber-700 mt-1">
+                          Seçilen kampüsümüzde sınav seans kontenjanları dolmuştur. Dilerseniz diğer kampüslerimizi seçebilirsiniz.
+                        </p>
                       )}
                     </div>
                   );
@@ -2024,82 +2213,232 @@ const BurslulukExamFormBlock = ({
   getSubtitleStyle,
   getIconStyle
 }: any) => {
-  const [burslulukActive, setBurslulukActive] = useState<boolean>(true);
+  const navigate = useNavigate();
+
+  const evaluateBurslulukStatus = (data: any) => {
+    if (!data || data.burslulukActive === undefined) return { active: true, msg: "" };
+    let isActive = data.burslulukActive;
+    if (isActive) {
+      const now = new Date();
+      if (data.burslulukStartDate && new Date(data.burslulukStartDate) > now) {
+        isActive = false;
+      }
+      if (data.burslulukEndDate && new Date(data.burslulukEndDate) < now) {
+        isActive = false;
+      }
+    }
+    return { active: isActive, msg: data.burslulukInactiveMessage || "" };
+  };
+
+  const initialBursluluk = evaluateBurslulukStatus(getCachedData<any>("settings_general", null));
+  const [burslulukActive, setBurslulukActive] = useState<boolean>(initialBursluluk.active);
   const [burslulukInactiveMessage, setBurslulukInactiveMessage] =
-    useState<string>("");
+    useState<string>(initialBursluluk.msg);
+
+  // Lost Ticket Lookup Drawer State ("Giriş Belgesi Sorgula / Tekrar İndir")
+  const [ticketLookupOpen, setTicketLookupOpen] = useState(false);
+  const [lookupTc, setLookupTc] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState("");
 
   useEffect(() => {
-    const fetchSettings = async () => {
+    let mounted = true;
+    const applyCached = () => {
+      const cached = getCachedData<any>("settings_general", null);
+      if (cached && mounted) {
+        const res = evaluateBurslulukStatus(cached);
+        setBurslulukActive(res.active);
+        setBurslulukInactiveMessage(res.msg);
+      }
+    };
+
+    applyCached();
+    window.addEventListener("dost:bootstrap-ready", applyCached);
+
+    if (isCacheFresh("settings_general", 3 * 60 * 1000)) {
+      return () => {
+        mounted = false;
+        window.removeEventListener("dost:bootstrap-ready", applyCached);
+      };
+    }
+
+    const timer = setTimeout(async () => {
+      if (!mounted || isCacheFresh("settings_general", 3 * 60 * 1000)) {
+        applyCached();
+        return;
+      }
       try {
-        const docRef = doc(db, "settings", "general");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
+        const docSnap = await fetchWithDedup("fb_settings_general", () =>
+          getDoc(doc(db, "settings", "general"))
+        );
+        if (mounted && docSnap.exists()) {
           const data = docSnap.data();
-          if (data.burslulukActive !== undefined) {
-            let isActive = data.burslulukActive;
-
-            if (isActive) {
-              const now = new Date();
-              if (
-                data.burslulukStartDate &&
-                new Date(data.burslulukStartDate) > now
-              ) {
-                isActive = false;
-              }
-              if (
-                data.burslulukEndDate &&
-                new Date(data.burslulukEndDate) < now
-              ) {
-                isActive = false;
-              }
-            }
-
-            setBurslulukActive(isActive);
-            setBurslulukInactiveMessage(data.burslulukInactiveMessage || "");
-          }
+          setCachedData("settings_general", data);
+          const res = evaluateBurslulukStatus(data);
+          setBurslulukActive(res.active);
+          setBurslulukInactiveMessage(res.msg);
         }
       } catch (e) {
         console.error("Error fetching bursluluk settings", e);
       }
+    }, 400);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+      window.removeEventListener("dost:bootstrap-ready", applyCached);
     };
-    fetchSettings();
   }, []);
 
+  const handleTicketLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLookupError("");
+    const cleanTc = lookupTc.replace(/\D/g, "");
+    if (!isValidTcKimlik(cleanTc)) {
+      setLookupError("Lütfen geçerli bir 11 haneli T.C. Kimlik Numarası giriniz.");
+      return;
+    }
+
+    setLookupLoading(true);
+    try {
+      const ticketId = await computeDeterministicTicketId(cleanTc);
+      const localCached = sessionStorage.getItem(`dost_exam_ticket_${ticketId}`);
+      if (localCached) {
+        navigate(`/bursluluk-basvuru-onay?id=${encodeURIComponent(ticketId)}`);
+        return;
+      }
+
+      const snap = await getDoc(doc(db, "exam_tickets", ticketId));
+      if (snap.exists()) {
+        const tData = snap.data();
+        try {
+          sessionStorage.setItem(`dost_exam_ticket_${ticketId}`, JSON.stringify(tData));
+          sessionStorage.setItem("dost_last_exam_ticket", JSON.stringify({ id: ticketId, ...tData }));
+        } catch (_) {}
+        navigate(`/bursluluk-basvuru-onay?id=${encodeURIComponent(ticketId)}`);
+      } else {
+        setLookupError(
+          "Bu T.C. Kimlik Numarasına ait kayıtlı bir sınav giriş belgesi bulunamadı. Aşağıdaki formu doldurarak hemen başvurunuzu oluşturabilirsiniz."
+        );
+      }
+    } catch (err) {
+      console.error("Ticket lookup error:", err);
+      setLookupError("Sorgulama sırasında bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
   const submitForm = async (formData: any) => {
+    const rawTc = String(formData.student_tc || formData.studentTc || formData.tc || "").replace(/\D/g, "");
+    const ticketId = await computeDeterministicTicketId(rawTc);
+
+    // 1. Mükerrer Başvuru Koruması (Aynı T.C. ile zaten kayıt varsa yeni kayıt açmadan mevcut belgeyi açar - 1 tekil okuma)
+    try {
+      const cachedExisting = sessionStorage.getItem(`dost_exam_ticket_${ticketId}`);
+      if (cachedExisting) {
+        const parsed = JSON.parse(cachedExisting);
+        sessionStorage.setItem("dost_last_exam_ticket", JSON.stringify({ id: ticketId, ...parsed }));
+        return { id: ticketId, isExisting: true, syncedOffline: false };
+      }
+
+      if (typeof navigator === "undefined" || navigator.onLine !== false) {
+        const existingSnap = await Promise.race([
+          getDoc(doc(db, "exam_tickets", ticketId)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]);
+        if (existingSnap && existingSnap.exists()) {
+          const existingTicket = existingSnap.data();
+          try {
+            sessionStorage.setItem(
+              `dost_exam_ticket_${ticketId}`,
+              JSON.stringify({ ...existingTicket, studentTc: rawTc || existingTicket.maskedTc })
+            );
+            sessionStorage.setItem(
+              "dost_last_exam_ticket",
+              JSON.stringify({ id: ticketId, ...existingTicket, studentTc: rawTc || existingTicket.maskedTc })
+            );
+          } catch (_) {}
+          return { id: ticketId, isExisting: true, syncedOffline: false };
+        }
+      }
+    } catch (_) {
+      // Devam et (çevrimdışı veya zaman aşımı durumunda başvuruyu engelleme)
+    }
+
+    // 2. Yeni Aday Kaydı & Deterministik KVKK Uyumlu Giriş Belgesi Oluşturma
+    const formDocRef = doc(collection(db, "forms"));
+    const candidateNo = `DK2027-${formDocRef.id.slice(0, 6).toUpperCase()}`;
+    const now = Date.now();
+
+    const enrichedData = {
+      ...formData,
+      candidateNo,
+      ticketId,
+    };
+
     if (block.webhookUrl) {
       try {
-        await fetch(block.webhookUrl, {
+        fetch(block.webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData),
-        });
-      } catch (err) {
-        console.error("Webhook error", err);
-      }
+          body: JSON.stringify(enrichedData),
+        }).catch(() => {});
+      } catch (_) {}
     }
+
     const formPayload = {
       type: "bursluluk_basvuru_formu",
       formName: "Bursluluk Sınav Başvurusu",
-      createdAt: Date.now(),
-      data: formData,
+      candidateNo,
+      ticketId,
+      status: "pending",
+      createdAt: now,
+      data: enrichedData,
     };
 
-    const docRef = await addDoc(collection(db, "forms"), formPayload);
+    const studentName = String(
+      formData.student_fullname || formData.studentName || formData.student_name || "Öğrenci"
+    ).slice(0, 120);
+    const grade = String(formData.grade_level || formData.grade || formData.class || "Belirtilmedi").slice(0, 64);
+    const campus = String(formData.campus_preference || formData.campus || formData.campus_select || "Eryaman Kampüsü").slice(0, 120);
+    const examSession = String(formData.exam_session || formData.examSession || "Seans 1: 10:00").slice(0, 64);
 
+    const publicTicketPayload = {
+      candidateNo,
+      studentName,
+      maskedTc: maskTcKimlik(rawTc),
+      grade,
+      campus,
+      examSession,
+      examDate: "5 Ocak 2027",
+      createdAt: now,
+    };
+
+    // Önce yerel sessionStorage'a kaydet ki veli onay ekranında 0ms'de belgesini görsün
     try {
-      const localBackup = JSON.parse(
-        localStorage.getItem("dost_scholarship_forms_backup") || "[]",
-      );
-      localBackup.unshift({ id: docRef.id, ...formPayload });
-      localStorage.setItem(
-        "dost_scholarship_forms_backup",
-        JSON.stringify(localBackup),
-      );
-    } catch (err) {
-      console.error("Local backup error", err);
-    }
+      const localTicket = {
+        ...publicTicketPayload,
+        studentTc: rawTc || publicTicketPayload.maskedTc,
+      };
+      sessionStorage.setItem(`dost_exam_ticket_${ticketId}`, JSON.stringify(localTicket));
+      sessionStorage.setItem("dost_last_exam_ticket", JSON.stringify({ id: ticketId, ...localTicket }));
+    } catch (_) {}
 
-    return docRef.id;
+    // 3 Katmanlı Sıfır Veri Kaybı (Firestore -> Express Relay -> Offline Outbox)
+    const writeRes = await submitFormResilient({
+      formId: formDocRef.id,
+      formPayload,
+      ticketId,
+      ticketPayload: publicTicketPayload,
+      allowOfflineQueue: true,
+    });
+
+    return {
+      id: ticketId,
+      isExisting: false,
+      syncedOffline: !writeRes.syncedNow,
+    };
   };
 
   return (
@@ -2147,6 +2486,64 @@ const BurslulukExamFormBlock = ({
             </div>
           </div>
         </div>
+
+        {/* Kayıp Belge Sorgulama / Tekrar İndirme Çubuğu */}
+        {burslulukActive && (
+          <div className="bg-slate-50 border-b border-slate-200/80 px-6 md:px-10 py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-left">
+                <p className="text-xs md:text-sm font-bold text-[#002147]">
+                  Daha önce başvuru yaptınız mı?
+                </p>
+                <p className="text-xs text-slate-500">
+                  Öğrenci T.C. Kimlik Numarası ile mevcut Sınav Giriş Belgenizi saniyeler içinde tekrar indirebilirsiniz.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTicketLookupOpen((prev) => !prev);
+                  setLookupError("");
+                }}
+                className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:border-[#002147] text-[#002147] text-xs font-bold transition-colors shrink-0 whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+              >
+                <span className="material-symbols-outlined text-base" translate="no" aria-hidden="true">
+                  badge
+                </span>
+                {ticketLookupOpen ? "Sorgulamayı Kapat" : "Giriş Belgesi Sorgula / İndir"}
+              </button>
+            </div>
+
+            {ticketLookupOpen && (
+              <form onSubmit={handleTicketLookup} className="mt-4 pt-4 border-t border-slate-200/80 space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={11}
+                    value={lookupTc}
+                    onChange={(e) => {
+                      setLookupTc(e.target.value.replace(/\D/g, "").slice(0, 11));
+                      if (lookupError) setLookupError("");
+                    }}
+                    placeholder="Öğrencinin 11 Haneli T.C. Kimlik Numarası"
+                    className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-[#002147] focus:ring-2 focus:ring-[#002147]/15"
+                  />
+                  <button
+                    type="submit"
+                    disabled={lookupLoading}
+                    className="px-5 py-2.5 bg-[#002147] hover:bg-[#002147]/90 text-white rounded-xl text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+                  >
+                    {lookupLoading ? "Sorgulanıyor..." : "Belgeyi Aç ve İndir"}
+                  </button>
+                </div>
+                {lookupError && (
+                  <p className="text-xs font-semibold text-red-600 text-left">{lookupError}</p>
+                )}
+              </form>
+            )}
+          </div>
+        )}
 
         {burslulukActive ? (
           <DynamicFormBuilder getIconStyle={getIconStyle}
@@ -2299,10 +2696,61 @@ const BurslulukResultQueryBlock = ({
   getStyle,
   getTitleStyle,
   getSubtitleStyle,
-  getIconStyle
 }: any) => {
+  const navigate = useNavigate();
   const [tcQuery, setTcQuery] = useState("");
   const [queryModal, setQueryModal] = useState(false);
+  const [queryMode, setQueryMode] = useState<"ticket" | "result">("ticket");
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [queryNotice, setQueryNotice] = useState<{ type: "error" | "info"; text: string } | null>(null);
+
+  const handleModalQuery = async () => {
+    const cleanTc = tcQuery.replace(/\D/g, "");
+    if (!isValidTcKimlik(cleanTc)) {
+      setQueryNotice({
+        type: "error",
+        text: "Lütfen geçerli bir 11 haneli T.C. Kimlik Numarası giriniz.",
+      });
+      return;
+    }
+
+    if (queryMode === "ticket") {
+      setQueryLoading(true);
+      setQueryNotice(null);
+      try {
+        const ticketId = await computeDeterministicTicketId(cleanTc);
+        const snap = await getDoc(doc(db, "exam_tickets", ticketId));
+        if (snap.exists()) {
+          const tData = snap.data();
+          try {
+            sessionStorage.setItem(`dost_exam_ticket_${ticketId}`, JSON.stringify(tData));
+            sessionStorage.setItem("dost_last_exam_ticket", JSON.stringify({ id: ticketId, ...tData }));
+          } catch (_) {}
+          setQueryModal(false);
+          navigate(`/bursluluk-basvuru-onay?id=${encodeURIComponent(ticketId)}`);
+        } else {
+          setQueryNotice({
+            type: "error",
+            text: "Bu T.C. Kimlik Numarasına ait kayıtlı bir sınav giriş belgesi bulunamadı.",
+          });
+        }
+      } catch (err) {
+        console.error("Query ticket error:", err);
+        setQueryNotice({
+          type: "error",
+          text: "Sorgulama sırasında bağlantı hatası oluştu. Lütfen tekrar deneyiniz.",
+        });
+      } finally {
+        setQueryLoading(false);
+      }
+      return;
+    }
+
+    setQueryNotice({
+      type: "info",
+      text: "Sınav sonuçları açıklandığında bu alandan ve kayıtlı cep telefonunuza SMS ile bilgilendirme yapılacaktır.",
+    });
+  };
 
   return (
     <section
@@ -2319,29 +2767,44 @@ const BurslulukResultQueryBlock = ({
               className="font-headline-xl text-2xl md:text-headline-xl mb-4 md:mb-6 font-bold whitespace-normal md:whitespace-pre-line"
               style={getTitleStyle(block)}
             >
-              {block.title || "Sınav Sonuç Sorgulama"}
+              {block.title || "Giriş Belgesi & Sınav Sonuç Sorgulama"}
             </h2>
             <p
               className="text-base md:text-lg opacity-80 mb-8 whitespace-normal md:whitespace-pre-line"
               style={getSubtitleStyle(block)}
             >
               {block.subtitle ||
-                "Aşağıdaki butona tıklayarak sınav sonuç sorgulama sayfasına ulaşabilirsiniz."}
+                "Sınav giriş belgenizi tekrar indirmek veya sınav sonucunuzu sorgulamak için aşağıdaki butonları kullanabilirsiniz."}
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 max-w-md whitespace-normal md:whitespace-pre-line">
+            <div className="flex flex-col sm:flex-row gap-3 max-w-xl whitespace-normal md:whitespace-pre-line">
               <button
                 type="button"
-                onClick={() => setQueryModal(true)}
-                className="w-full bg-[#D4AF37] text-[#002147] font-bold py-4 px-2 md:px-6 rounded-xl hover:brightness-110 transition-all flex items-center justify-center gap-2 shadow-lg text-sm md:text-base uppercase tracking-wider cursor-pointer whitespace-normal md:whitespace-pre-line"
+                onClick={() => {
+                  setQueryMode("ticket");
+                  setQueryNotice(null);
+                  setQueryModal(true);
+                }}
+                className="flex-1 bg-white text-[#002147] font-bold py-4 px-5 rounded-xl hover:bg-slate-100 transition-all flex items-center justify-center gap-2 shadow-lg text-sm cursor-pointer whitespace-nowrap"
               >
-                <span
-                  className="material-symbols-outlined whitespace-normal md:whitespace-pre-line"
-                  translate="no"
-                  aria-hidden="true"
-                >
+                <span className="material-symbols-outlined text-xl" translate="no" aria-hidden="true">
+                  badge
+                </span>
+                Giriş Belgesi İndir
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setQueryMode("result");
+                  setQueryNotice(null);
+                  setQueryModal(true);
+                }}
+                className="flex-1 bg-[#D4AF37] text-[#002147] font-bold py-4 px-5 rounded-xl hover:brightness-110 transition-all flex items-center justify-center gap-2 shadow-lg text-sm cursor-pointer whitespace-nowrap"
+              >
+                <span className="material-symbols-outlined text-xl" translate="no" aria-hidden="true">
                   search
                 </span>
-                {block.buttonText || "SINAV SONUCUNU ÖĞREN"}
+                {block.buttonText || "Sınav Sonucunu Öğren"}
               </button>
             </div>
           </div>
@@ -2358,49 +2821,90 @@ const BurslulukResultQueryBlock = ({
 
       {queryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 whitespace-normal md:whitespace-pre-line">
-          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl relative whitespace-normal md:whitespace-pre-line">
+          <div className="bg-white rounded-3xl p-7 md:p-8 max-w-md w-full shadow-2xl relative whitespace-normal md:whitespace-pre-line">
             <button
               type="button"
               onClick={() => setQueryModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 cursor-pointer whitespace-normal md:whitespace-pre-line"
             >
-              <span
-                className="material-symbols-outlined whitespace-normal md:whitespace-pre-line"
-                translate="no"
-                aria-hidden="true"
-              >
+              <span className="material-symbols-outlined" translate="no" aria-hidden="true">
                 close
               </span>
             </button>
-            <h3 className="text-2xl font-bold text-[#002147] mb-2 whitespace-normal md:whitespace-pre-line">
-              Sınav Sonuç Sorgulama
+
+            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl mb-5 mr-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setQueryMode("ticket");
+                  setQueryNotice(null);
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                  queryMode === "ticket"
+                    ? "bg-white text-[#002147] shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Giriş Belgesi İndir
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQueryMode("result");
+                  setQueryNotice(null);
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                  queryMode === "result"
+                    ? "bg-white text-[#002147] shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Sonuç Sorgula
+              </button>
+            </div>
+
+            <h3 className="text-xl font-bold text-[#002147] mb-1.5">
+              {queryMode === "ticket" ? "Sınav Giriş Belgesi Sorgula" : "Sınav Sonuç Sorgulama"}
             </h3>
-            <p className="text-slate-500 text-sm mb-6 whitespace-normal md:whitespace-pre-line">
-              Lütfen öğrencinin T.C. Kimlik Numarasını giriniz.
+            <p className="text-slate-500 text-xs sm:text-sm mb-5">
+              {queryMode === "ticket"
+                ? "Başvuru yaptığınız öğrencinin 11 haneli T.C. Kimlik Numarasını girerek giriş belgesini görüntüleyip indirebilirsiniz."
+                : "Lütfen öğrencinin 11 haneli T.C. Kimlik Numarasını giriniz."}
             </p>
             <input
               type="text"
+              inputMode="numeric"
               maxLength={11}
               value={tcQuery}
-              onChange={(e) => setTcQuery(e.target.value)}
+              onChange={(e) => {
+                setTcQuery(e.target.value.replace(/\D/g, "").slice(0, 11));
+                if (queryNotice) setQueryNotice(null);
+              }}
               placeholder="11 haneli T.C. Kimlik No"
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl mb-4 outline-none focus:ring-2 focus:ring-[#1d4eca] text-sm whitespace-normal md:whitespace-pre-line"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl mb-4 outline-none focus:ring-2 focus:ring-[#1d4eca] text-sm"
             />
+            {queryNotice && (
+              <div
+                className={`p-3.5 rounded-xl text-xs font-semibold mb-4 ${
+                  queryNotice.type === "error"
+                    ? "bg-red-50 text-red-700 border border-red-200"
+                    : "bg-blue-50 text-[#002147] border border-blue-200"
+                }`}
+              >
+                {queryNotice.text}
+              </div>
+            )}
             <button
               type="button"
-              onClick={() => {
-                if (tcQuery.length !== 11) {
-                  alert("Lütfen 11 haneli T.C. Kimlik No giriniz.");
-                  return;
-                }
-                alert(
-                  "Sınav sonuçları açıklandığında bu alandan ve SMS ile bilgilendirme yapılacaktır.",
-                );
-                setQueryModal(false);
-              }}
-              className="w-full bg-[#1d4eca] text-white py-3.5 rounded-xl font-bold hover:bg-[#1d4eca]/90 transition-all text-sm cursor-pointer whitespace-normal md:whitespace-pre-line"
+              disabled={queryLoading}
+              onClick={handleModalQuery}
+              className="w-full bg-[#1d4eca] text-white py-3.5 rounded-xl font-bold hover:bg-[#1d4eca]/90 transition-all text-sm cursor-pointer disabled:opacity-60"
             >
-              Sorgula
+              {queryLoading
+                ? "Sorgulanıyor..."
+                : queryMode === "ticket"
+                ? "Giriş Belgesini Aç"
+                : "Sorgula"}
             </button>
           </div>
         </div>
@@ -2415,25 +2919,92 @@ const BurslulukConfirmationBlock = ({
   getStyle,
   getTitleStyle,
   getSubtitleStyle,
-  getIconStyle
 }: any) => {
-  const [submission, setSubmission] = useState<any>(null);
+  const [submission, setSubmission] = useState<any>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const id = searchParams.get("id");
+      if (id) {
+        const cached = sessionStorage.getItem(`dost_exam_ticket_${id}`);
+        if (cached) return JSON.parse(cached);
+      } else {
+        const lastCached = sessionStorage.getItem("dost_last_exam_ticket");
+        if (lastCached) return JSON.parse(lastCached);
+      }
+    } catch (_) {}
+    return null;
+  });
+
+  const [ticketLoading, setTicketLoading] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const searchParams = new URLSearchParams(window.location.search);
+    const id = searchParams.get("id");
+    if (!id) return false;
+    try {
+      return !sessionStorage.getItem(`dost_exam_ticket_${id}`);
+    } catch (_) {
+      return true;
+    }
+  });
+
+  const [downloadingType, setDownloadingType] = useState<"pdf" | "image" | null>(null);
+  const [previewModalData, setPreviewModalData] = useState<{
+    pngDataUrl: string;
+    pdfBlob: Blob;
+    pdfFileName: string;
+    pngFileName: string;
+  } | null>(null);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const id = searchParams.get("id");
-    if (id) {
-      const docRef = doc(db, "forms", id);
-      getDoc(docRef)
-        .then((snap) => {
-          if (snap.exists()) {
-            setSubmission(snap.data());
-          }
-        })
-        .catch((err) => {
-          console.error("Error fetching submission:", err);
-        });
+    if (!id) {
+      setTicketLoading(false);
+      return;
     }
+
+    // Already hydrated from sessionStorage in 0ms
+    try {
+      if (sessionStorage.getItem(`dost_exam_ticket_${id}`)) {
+        setTicketLoading(false);
+        return;
+      }
+    } catch (_) {}
+
+    let active = true;
+    const loadTicket = async () => {
+      try {
+        // 1. Read from KVKK-isolated /exam_tickets/{id} collection
+        const ticketSnap = await getDoc(doc(db, "exam_tickets", id));
+        if (active && ticketSnap.exists()) {
+          const tData = ticketSnap.data();
+          setSubmission(tData);
+          try {
+            sessionStorage.setItem(`dost_exam_ticket_${id}`, JSON.stringify(tData));
+          } catch (_) {}
+          setTicketLoading(false);
+          return;
+        }
+
+        // 2. Fallback for logged-in admins viewing older /forms/{id} records
+        if (auth.currentUser) {
+          const formSnap = await getDoc(doc(db, "forms", id));
+          if (active && formSnap.exists()) {
+            setSubmission(formSnap.data());
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching exam ticket:", err);
+      } finally {
+        if (active) setTicketLoading(false);
+      }
+    };
+
+    loadTicket();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const subData = submission?.data || submission || {};
@@ -2442,13 +3013,17 @@ const BurslulukConfirmationBlock = ({
     subData.studentName ||
     subData.student_fullname ||
     subData.student_name ||
-    "AHMET YILMAZ";
+    (submission ? "ADAY ÖĞRENCİ" : "ÖRNEK ADAY ÖĞRENCİ");
   const studentTc =
-    subData.studentTc || subData.student_tc || subData.tc || "12345678901";
+    subData.studentTc ||
+    subData.maskedTc ||
+    subData.student_tc ||
+    subData.tc ||
+    "***********";
   const rawGrade =
     subData.grade || subData.grade_level || subData.class || "8. Sınıf";
   const formattedGrade = String(rawGrade).includes("Sınıf")
-    ? rawGrade
+    ? String(rawGrade)
     : `${rawGrade}. Sınıf`;
 
   const campusVal = String(
@@ -2464,26 +3039,23 @@ const BurslulukConfirmationBlock = ({
     campusName = "Ümitköy Kampüsü - Ana Bina";
   else if (campusVal.includes("eryaman"))
     campusName = "Eryaman Kampüsü - Ana Bina";
-  else if (subData.campus) campusName = subData.campus;
+  else if (subData.campus) campusName = String(subData.campus);
 
-  const sessionVal = String(
-    subData.examSession || subData.exam_session || "session_1",
-  ).toLowerCase();
-  let examTime = "10:00";
-  if (
-    sessionVal.includes("14") ||
-    sessionVal.includes("2") ||
-    sessionVal.includes("14:00")
-  ) {
-    examTime = "14:00";
-  } else if (subData.examSession) {
-    examTime = subData.examSession;
-  }
+  const examTime = parseExamSessionTime(
+    subData.examSession || subData.exam_session || "Seans 1: 10:00"
+  );
 
-  const examDate = block.examDate || "16 Mart 2026";
-  const docNo = submission
-    ? `2026-${String(submission.createdAt || Date.now()).slice(-4)}`
-    : block.documentNo || "2026-8842";
+  const examDate = subData.examDate || block.examDate || "5 Ocak 2027";
+  const searchId =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("id") || ""
+      : "";
+  const docNo =
+    subData.candidateNo ||
+    submission?.candidateNo ||
+    (searchId
+      ? `DK2027-${searchId.slice(0, 6).toUpperCase()}`
+      : block.documentNo || "DK2027-0001");
 
   const formattedDocDate = submission?.createdAt
     ? new Date(submission.createdAt).toLocaleDateString("tr-TR")
@@ -2501,9 +3073,12 @@ const BurslulukConfirmationBlock = ({
   else if (campusVal.includes("umitkoy") || campusVal.includes("ümitköy"))
     currentCampusAddress = campusAddresses.umitkoy;
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const safeLogoUrl =
+    block.documentLogo &&
+    !String(block.documentLogo).includes("aida-public") &&
+    !String(block.documentLogo).includes("images.unsplash.com")
+      ? block.documentLogo
+      : "/dost-logo-png.png";
 
   const rulesList =
     block.rules && Array.isArray(block.rules)
@@ -2522,6 +3097,99 @@ const BurslulukConfirmationBlock = ({
           typeof d === "string" ? d : d.docName || d.text || "",
         )
       : ["Nüfus Cüzdanı veya Kimlik Kartı", "Sınav Giriş Belgesi"];
+
+  const buildTicketPayload = () => ({
+    docNo,
+    docDate: formattedDocDate,
+    studentName,
+    studentTc,
+    grade: formattedGrade,
+    examDate,
+    examTime,
+    campusName,
+    campusAddress: currentCampusAddress,
+    documentTitle: block.documentTitle || "Bursluluk Sınavı Giriş Belgesi",
+    logoUrl: safeLogoUrl,
+    rules: rulesList,
+    requiredDocs: docsList,
+  });
+
+  const handleDownloadPdf = async () => {
+    if (downloadingType) return;
+    setDownloadingType("pdf");
+    try {
+      const files = await generateExamTicketFiles(buildTicketPayload());
+      if (isInAppWebView()) {
+        // Instagram/Facebook WebViews often block <a download>; try native share sheet first and open save modal
+        const shared = await shareExamTicketFile(
+          files.pdfBlob,
+          files.pdfFileName,
+          studentName
+        );
+        if (!shared) {
+          triggerBlobDownload(files.pdfBlob, files.pdfFileName);
+          setPreviewModalData(files);
+        }
+      } else {
+        triggerBlobDownload(files.pdfBlob, files.pdfFileName);
+      }
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      window.print();
+    } finally {
+      setDownloadingType(null);
+    }
+  };
+
+  const handleSaveOrShareImage = async () => {
+    if (downloadingType) return;
+    setDownloadingType("image");
+    try {
+      const files = await generateExamTicketFiles(buildTicketPayload());
+      const pngRes = await fetch(files.pngDataUrl);
+      const pngBlob = await pngRes.blob();
+      const shared = await shareExamTicketFile(
+        pngBlob,
+        files.pngFileName,
+        studentName
+      );
+      if (!shared) {
+        if (isInAppWebView()) {
+          setPreviewModalData(files);
+        } else {
+          triggerBlobDownload(pngBlob, files.pngFileName);
+        }
+      }
+    } catch (err) {
+      console.error("Image export error:", err);
+    } finally {
+      setDownloadingType(null);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  if (ticketLoading) {
+    return (
+      <section
+        key={index}
+        className="py-16 md:py-24 bg-surface-background min-h-[70vh] flex items-center justify-center"
+        style={getStyle(block, "container")}
+      >
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-10 max-w-md w-full text-center space-y-4 mx-4">
+          <div className="w-12 h-12 border-4 border-[#002147]/20 border-t-[#002147] rounded-full animate-spin mx-auto" />
+          <h3 className="text-lg font-bold text-[#002147]">
+            Sınav Giriş Belgeniz Hazırlanıyor...
+          </h3>
+          <p className="text-xs text-slate-500">
+            Lütfen birkaç saniye bekleyiniz, aday bilgileriniz doğrulanıyor.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -2578,43 +3246,102 @@ const BurslulukConfirmationBlock = ({
             style={getSubtitleStyle(block)}
           >
             {block.subtitle ||
-              "Sınav giriş belgeniz aşağıda oluşturulmuştur. Lütfen sınav günü yanınızda bulundurunuz. Belgenizi indirip yazdırarak sınava getirmeyi unutmayınız."}
+              "Sınav giriş belgeniz aşağıda oluşturulmuştur. Belgenizi PDF veya görsel olarak telefonunuza kaydedebilir ya da yazdırabilirsiniz."}
           </p>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex flex-wrap justify-center gap-4 mb-8 no-print whitespace-normal md:whitespace-pre-line">
+        {/* Action Controls (Mobile PDF, Image Share, WhatsApp Save, Calendar .ICS, Maps & Print) */}
+        <div className="flex flex-wrap justify-center gap-2.5 md:gap-3 mb-8 no-print">
           <button
             type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-2 bg-[#002147] text-white px-2 md:px-6 py-3.5 rounded-xl font-bold hover:bg-[#002147]/90 transition-all shadow-md active:scale-95 cursor-pointer text-sm whitespace-normal md:whitespace-pre-line"
+            disabled={downloadingType !== null}
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-2 bg-[#002147] text-white px-5 py-3 rounded-xl font-bold hover:bg-[#002147]/90 transition-all shadow-md active:scale-95 cursor-pointer text-xs sm:text-sm disabled:opacity-60 whitespace-nowrap"
           >
-            <span
-              className="material-symbols-outlined text-xl whitespace-normal md:whitespace-pre-line"
-              translate="no"
-              aria-hidden="true"
-            >
+            <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
               download
-            </span>{" "}
-            İndir (PDF)
+            </span>
+            {downloadingType === "pdf" ? "PDF Hazırlanıyor..." : "İndir (PDF)"}
           </button>
+
+          <button
+            type="button"
+            disabled={downloadingType !== null}
+            onClick={handleSaveOrShareImage}
+            className="flex items-center gap-2 bg-[#1d4eca] text-white px-5 py-3 rounded-xl font-bold hover:bg-[#1d4eca]/90 transition-all shadow-md active:scale-95 cursor-pointer text-xs sm:text-sm disabled:opacity-60 whitespace-nowrap"
+          >
+            <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
+              share
+            </span>
+            {downloadingType === "image" ? "Hazırlanıyor..." : "Görsel Kaydet / Paylaş"}
+          </button>
+
+          <a
+            href={buildWhatsAppTicketUrl({
+              docNo,
+              studentName,
+              grade: formattedGrade,
+              examDate,
+              examTime,
+              campusName,
+              campusAddress: currentCampusAddress,
+              ticketId: searchId || submission?.id || "",
+            })}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-md active:scale-95 cursor-pointer text-xs sm:text-sm whitespace-nowrap"
+          >
+            <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
+              chat
+            </span>
+            WhatsApp&apos;a Gönder
+          </a>
+
+          <button
+            type="button"
+            onClick={() =>
+              downloadExamCalendarIcs({
+                docNo,
+                studentName,
+                examDate,
+                examTime,
+                campusName,
+                campusAddress: currentCampusAddress,
+              })
+            }
+            className="flex items-center gap-2 bg-white text-[#002147] border border-slate-300 hover:border-[#002147] px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-all active:scale-95 cursor-pointer text-xs sm:text-sm whitespace-nowrap"
+          >
+            <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
+              event
+            </span>
+            Takvime Ekle
+          </button>
+
+          <a
+            href={buildCampusMapsUrl(campusName, currentCampusAddress)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-white text-[#002147] border border-slate-300 hover:border-[#002147] px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-all active:scale-95 cursor-pointer text-xs sm:text-sm whitespace-nowrap"
+          >
+            <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
+              directions
+            </span>
+            Yol Tarifi
+          </a>
+
           <button
             type="button"
             onClick={handlePrint}
-            className="flex items-center gap-2 bg-white text-[#002147] border-2 border-[#002147] px-2 md:px-6 py-3.5 rounded-xl font-bold hover:bg-slate-50 transition-all active:scale-95 cursor-pointer text-sm whitespace-normal md:whitespace-pre-line"
+            className="flex items-center gap-2 bg-white text-[#002147] border border-slate-300 hover:border-[#002147] px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-all active:scale-95 cursor-pointer text-xs sm:text-sm whitespace-nowrap"
           >
-            <span
-              className="material-symbols-outlined text-xl whitespace-normal md:whitespace-pre-line"
-              translate="no"
-              aria-hidden="true"
-            >
+            <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
               print
-            </span>{" "}
+            </span>
             Yazdır
           </button>
         </div>
 
-        {/* PDF Preview Container (A4 Mockup Card) */}
+        {/* PDF Preview Container (A4 Official Ticket Card) */}
         <div
           id="printable-exam-document"
           className="bg-white shadow-2xl rounded-2xl mx-auto overflow-hidden border border-slate-200 p-6 md:p-12 relative whitespace-normal md:whitespace-pre-line"
@@ -2631,12 +3358,14 @@ const BurslulukConfirmationBlock = ({
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-[#002147] pb-6 mb-8 gap-4 whitespace-normal md:whitespace-pre-line">
               <div className="flex items-center gap-4 whitespace-normal md:whitespace-pre-line">
                 <img
-                  src={block.documentLogo || "/dost-logo-png.png"}
+                  src={safeLogoUrl}
                   alt="Dost Koleji Logo"
                   className="h-12 w-auto object-contain whitespace-normal md:whitespace-pre-line"
                   onError={(e: any) => {
-                    e.target.src =
-                      "https://lh3.googleusercontent.com/aida-public/AB6AXuAcW18movsC69qnz9zpsbzsrJLWPy_Geo5sAAAi9nqoC0YE-bdMj0AiEUe-Z78NoFFBpFQy5UuXaMmRO0quff6khOovxlJfE1ptuTa38PqzHcJhVeJMUlPxZqHhxVw08UApxaSzgRKctOtlTu4DtjMgzPIZdZ0WMLs8KuA96cHwv2jaeSc1OpVg0rX0eqzr2iTpWL0N0C_Y9PkoQ7IeERePRqYH46NNAxWyoW03nr17RN7GXuwfevi2RYWTPiQtM4pg9fysMIgmkuk";
+                    if (!e.target.dataset.fallbackApplied) {
+                      e.target.dataset.fallbackApplied = "1";
+                      e.target.src = "/dost-logo-png.png";
+                    }
                   }}
                 />
                 <div>
@@ -2768,9 +3497,9 @@ const BurslulukConfirmationBlock = ({
 
             {/* Watermark / Footer Strip */}
             <div className="mt-8 pt-4 border-t border-slate-100 flex justify-between items-center text-[10px] text-slate-400 whitespace-normal md:whitespace-pre-line">
-              <span>Dost Koleji Sınav Hizmetleri © 2026</span>
+              <span>Dost Koleji Sınav Hizmetleri © 2026-2027</span>
               <span className="font-mono whitespace-normal md:whitespace-pre-line">
-                VERIFIED OFFICIAL ENTRY TICKET
+                VERIFIED ENTRY TICKET • {docNo}
               </span>
             </div>
           </div>
@@ -2780,8 +3509,8 @@ const BurslulukConfirmationBlock = ({
         <div
           className={`mt-10 ${block.styles?.textAlign ? "" : "text-center"} no-print`}
         >
-          <a
-            href="/"
+          <Link
+            to="/"
             className="text-primary font-bold inline-flex items-center justify-center gap-2 hover:underline text-sm whitespace-normal md:whitespace-pre-line"
           >
             <span
@@ -2792,9 +3521,65 @@ const BurslulukConfirmationBlock = ({
               home
             </span>{" "}
             Ana Sayfaya Dön
-          </a>
+          </Link>
         </div>
       </div>
+
+      {/* In-App Browser (Instagram / Facebook WebView) Save Preview Modal */}
+      {previewModalData && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h4 className="text-base font-bold text-[#002147]">
+                  Sınav Giriş Belgeniz Hazır
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Görsele basılı tutarak &ldquo;Fotoğraflara Kaydet&rdquo; diyebilir veya paylaşabilirsiniz.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewModalData(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-lg" translate="no" aria-hidden="true">
+                  close
+                </span>
+              </button>
+            </div>
+
+            <img
+              src={previewModalData.pngDataUrl}
+              alt="Sınav Giriş Belgesi"
+              className="w-full h-auto rounded-xl border border-slate-200 shadow-sm"
+            />
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() =>
+                  shareExamTicketFile(
+                    previewModalData.pdfBlob,
+                    previewModalData.pdfFileName,
+                    studentName
+                  )
+                }
+                className="flex-1 bg-[#002147] text-white py-3 px-4 rounded-xl text-xs font-bold hover:bg-[#002147]/90 cursor-pointer"
+              >
+                PDF Olarak Paylaş / Kaydet
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewModalData(null)}
+                className="px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

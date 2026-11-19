@@ -1,8 +1,9 @@
 import { resolveMediaUrls } from '../lib/resolveMedia';
+import { getCachedData, setCachedData, isCacheFresh } from '../lib/cache';
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, getDocs, getDoc, doc, query, where } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 import { DynamicBlockRenderer } from './PageBlocks';
 import {
   defaultHomePageData,
@@ -55,7 +56,9 @@ export interface PopupData {
 export default function PopupOverlay() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [activePopups, setActivePopups] = useState<PopupData[]>([]);
+  const [activePopups, setActivePopups] = useState<PopupData[]>(() =>
+    getCachedData<PopupData[]>('popups_active', []) || []
+  );
   const [currentPopup, setCurrentPopup] = useState<PopupData | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -82,24 +85,53 @@ export default function PopupOverlay() {
     }
   }, [location.search]);
 
-  // Subscribe to active popups from Firestore
+  // Stale-While-Revalidate: Sync from /api/public-bootstrap first; only hit Firestore if cache is still stale after bootstrap
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'popups'), (snapshot) => {
-      const popups = snapshot.docs
-        .map((doc) => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        .filter((p: any) => {
-          const st = (p.status || '').toString().trim().toUpperCase();
-          return st === 'AKTİF' || st === 'AKTIF';
-        }) as PopupData[];
-      setActivePopups(popups);
-    }, (err) => {
-      console.error('Error fetching popups:', err);
-    });
-    return () => unsubscribe();
-  }, []);
+    let active = true;
+    const syncFromLocal = () => {
+      const cached = getCachedData<PopupData[]>('popups_active', null);
+      if (active && Array.isArray(cached)) {
+        setActivePopups(cached);
+      }
+    };
+
+    window.addEventListener('dost:bootstrap-ready', syncFromLocal);
+
+    const isForceMode = location.search.includes('force_popup') || location.search.includes('reset_popups');
+    if (!isForceMode && !auth.currentUser && isCacheFresh('popups_active', 15 * 60 * 1000)) {
+      return () => {
+        active = false;
+        window.removeEventListener('dost:bootstrap-ready', syncFromLocal);
+      };
+    }
+
+    const timer = setTimeout(async () => {
+      if (!active) return;
+      if (!isForceMode && !auth.currentUser && isCacheFresh('popups_active', 15 * 60 * 1000)) {
+        syncFromLocal();
+        return;
+      }
+      try {
+        const activeQuery = query(collection(db, 'popups'), where('status', 'in', ['AKTİF', 'AKTIF']));
+        const snapshot = await getDocs(activeQuery);
+        if (!active) return;
+        const popups = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data()
+        })) as PopupData[];
+        setActivePopups(popups);
+        setCachedData('popups_active', popups);
+      } catch (err) {
+        console.error('Error fetching popups:', err);
+      }
+    }, isForceMode ? 0 : 400);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      window.removeEventListener('dost:bootstrap-ready', syncFromLocal);
+    };
+  }, [location.search]);
 
   // Evaluate candidate popup for current page
   useEffect(() => {
@@ -349,18 +381,28 @@ export default function PopupOverlay() {
 }
 
 function EmbeddedPageLoader({ pageId }: { pageId: string }) {
-  const [pageData, setPageData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [pageData, setPageData] = useState<any>(() => getCachedData(`page_${pageId}`, null));
+  const [loading, setLoading] = useState(() => !getCachedData(`page_${pageId}`, null));
 
   useEffect(() => {
     const fetchPage = async () => {
       try {
+        const cached = getCachedData(`page_${pageId}`, null);
+        if (cached) {
+          setPageData(cached);
+          setLoading(false);
+          if (!auth.currentUser && isCacheFresh(`page_${pageId}`, 15 * 60 * 1000)) {
+            return;
+          }
+        }
         const docRef = doc(db, 'pages', pageId);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists() && docSnap.data().blocks && docSnap.data().blocks.length > 0) {
           let data = docSnap.data();
           if (!data.isDeleted && !data.isHidden) {
-            setPageData(await resolveMediaUrls(data));
+            const resolved = await resolveMediaUrls(data);
+            setPageData(resolved);
+            setCachedData(`page_${pageId}`, resolved);
             setLoading(false);
             return;
           }
