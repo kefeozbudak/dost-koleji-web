@@ -48,22 +48,38 @@ export function maskTcKimlik(rawTc: string): string {
 }
 
 /**
- * Sınav seansı metninden gerçek saat bilgisini (Örn: "Seans 2: 16:00" -> "16:00") çıkarır
+ * Sınav seansı metninden gerçek saat bilgisini (1. Seans -> "11:00", 2. Seans -> "15:00") çıkarır
  */
 export function parseExamSessionTime(rawSession: any): string {
   const str = String(rawSession || '').trim();
-  if (!str) return '10:00';
+  if (!str) return '11:00';
+
+  const lower = str.toLocaleLowerCase('tr-TR');
+  if (
+    lower.includes('15:00') ||
+    lower.includes('16:00') ||
+    lower.includes('session_2') ||
+    lower.includes('seans 2') ||
+    lower.includes('2. seans')
+  ) {
+    return '15:00';
+  }
+  if (
+    lower.includes('11:00') ||
+    lower.includes('10:00') ||
+    lower.includes('session_1') ||
+    lower.includes('seans 1') ||
+    lower.includes('1. seans')
+  ) {
+    return '11:00';
+  }
 
   const explicitTime = str.match(/(\d{1,2}:\d{2})/);
   if (explicitTime && explicitTime[1]) {
     return explicitTime[1];
   }
 
-  const lower = str.toLowerCase();
-  if (lower.includes('session_2') || lower.includes('seans 2')) {
-    return '16:00';
-  }
-  return '10:00';
+  return '11:00';
 }
 
 /**
@@ -346,7 +362,7 @@ export async function renderExamTicketCanvas(
     { label: 'T.C. KİMLİK NUMARASI', value: String(ticket.studentTc || '-') },
     { label: 'SINIF SEVİYESİ', value: String(ticket.grade || '-') },
     { label: 'SINAV TARİHİ', value: String(ticket.examDate || '9 OCAK 2027 CUMARTESİ') },
-    { label: 'SINAV SAATİ / SEANS', value: String(ticket.examTime || '10:00') },
+    { label: 'SINAV SAATİ / SEANS', value: String(ticket.examTime || '11:00') },
     { label: 'SINAV MERKEZİ (KAMPÜS)', value: String(ticket.campusName || '-') },
   ];
 

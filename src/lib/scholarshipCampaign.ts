@@ -408,10 +408,23 @@ export function formatExamDateLabel(rawDate: any): string {
 
 export function normalizeSessionSlot(rawSession: any): '1' | '2' {
   const s = String(rawSession || '').toLocaleLowerCase('tr-TR');
-  if (s.includes('16:00') || s.includes('seans 2') || s.includes('session_2') || s.includes('öğleden')) {
+  if (
+    s.includes('15:00') ||
+    s.includes('16:00') ||
+    s.includes('seans 2') ||
+    s.includes('2. seans') ||
+    s.includes('session_2') ||
+    s.includes('öğleden')
+  ) {
     return '2';
   }
   return '1';
+}
+
+export function formatExamSessionLabel(rawSession: any): string {
+  const s = String(rawSession || '').trim();
+  if (!s) return '';
+  return normalizeSessionSlot(s) === '2' ? 'Seans 2: 15:00' : 'Seans 1: 11:00';
 }
 
 export function getCampusSessionKey(
@@ -526,7 +539,7 @@ export function downloadExamCalendarIcs(params: {
   const { year, month, day } = parseTurkishDateToYMD(params.examDate);
   const parsedTime = parseExamSessionTime(params.examTime);
   const [hourStr, minStr] = parsedTime.split(':');
-  const startHour = Math.min(23, Math.max(0, parseInt(hourStr || '10', 10)));
+  const startHour = Math.min(23, Math.max(0, parseInt(hourStr || '11', 10)));
   const startMin = Math.min(59, Math.max(0, parseInt(minStr || '0', 10)));
   const endHour = Math.min(23, startHour + 2);
 

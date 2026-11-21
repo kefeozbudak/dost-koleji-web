@@ -511,7 +511,7 @@ export const liveFallbackData = {
             {
               "required": true,
               "type": "select",
-              "options": "Seans 1: 10:00, Seans 2: 16:00",
+              "options": "Seans 1: 11:00, Seans 2: 15:00",
               "label": "Sınav Saati",
               "name": "exam_session"
             }

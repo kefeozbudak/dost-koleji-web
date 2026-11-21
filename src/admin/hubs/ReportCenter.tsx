@@ -29,7 +29,8 @@ import {
   normalizeCampusKey,
   normalizeExamDateSlot,
   formatExamDateLabel,
-  normalizeSessionSlot
+  normalizeSessionSlot,
+  formatExamSessionLabel
 } from '../../lib/scholarshipCampaign';
 import {
   exportToExcelXlsx,
@@ -41,33 +42,67 @@ type BranchKey = 'umitkoy' | 'eryaman' | 'oran';
 type DateSlotFilter = 'all' | '9_ocak' | '10_ocak';
 type SessionSlotFilter = 'all' | '1' | '2';
 
-const REPORT_BRANCH_CONFIGS: {
+interface ReportBranchTheme {
   key: BranchKey;
   label: string;
   shortLabel: string;
   filterValue: string;
+  accentText: string;
   accentBg: string;
-}[] = [
+  tabActive: string;
+  tabInactive: string;
+  panelSurface: string;
+  panelDivider: string;
+  selectBorder: string;
+  slotActive: string;
+  slotInactive: string;
+}
+
+const REPORT_BRANCH_CONFIGS: ReportBranchTheme[] = [
   {
     key: 'umitkoy',
     label: 'Ümitköy Kampüsü',
     shortLabel: 'Ümitköy',
     filterValue: 'ümitköy',
-    accentBg: 'bg-emerald-50 text-emerald-700'
+    accentText: 'text-emerald-800',
+    accentBg: 'bg-emerald-100 text-emerald-700',
+    tabActive: 'bg-emerald-600 text-white border-emerald-600 shadow-xs',
+    tabInactive: 'bg-emerald-50/90 text-emerald-800 border-emerald-200 hover:bg-emerald-100',
+    panelSurface: 'bg-emerald-50/50 border-emerald-200',
+    panelDivider: 'border-emerald-200/70',
+    selectBorder: 'border-emerald-200 focus:border-emerald-600',
+    slotActive: 'bg-emerald-600 text-white border-emerald-600 shadow-2xs',
+    slotInactive: 'bg-white text-emerald-950 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'
   },
   {
     key: 'eryaman',
     label: 'Eryaman Kampüsü',
     shortLabel: 'Eryaman',
     filterValue: 'eryaman',
-    accentBg: 'bg-blue-50 text-[#004899]'
+    accentText: 'text-[#004899]',
+    accentBg: 'bg-blue-100 text-[#004899]',
+    tabActive: 'bg-[#004899] text-white border-[#004899] shadow-xs',
+    tabInactive: 'bg-blue-50/90 text-[#004899] border-blue-200 hover:bg-blue-100',
+    panelSurface: 'bg-blue-50/50 border-blue-200',
+    panelDivider: 'border-blue-200/70',
+    selectBorder: 'border-blue-200 focus:border-[#004899]',
+    slotActive: 'bg-[#004899] text-white border-[#004899] shadow-2xs',
+    slotInactive: 'bg-white text-[#002147] border-blue-200 hover:border-[#004899] hover:bg-blue-50/60'
   },
   {
     key: 'oran',
     label: 'Oran Kampüsü',
     shortLabel: 'Oran',
     filterValue: 'oran',
-    accentBg: 'bg-amber-50 text-amber-700'
+    accentText: 'text-amber-800',
+    accentBg: 'bg-amber-100 text-amber-700',
+    tabActive: 'bg-amber-600 text-white border-amber-600 shadow-xs',
+    tabInactive: 'bg-amber-50/90 text-amber-800 border-amber-200 hover:bg-amber-100',
+    panelSurface: 'bg-amber-50/50 border-amber-200',
+    panelDivider: 'border-amber-200/70',
+    selectBorder: 'border-amber-200 focus:border-amber-600',
+    slotActive: 'bg-amber-600 text-white border-amber-600 shadow-2xs',
+    slotInactive: 'bg-white text-amber-950 border-amber-200 hover:border-amber-400 hover:bg-amber-50/60'
   }
 ];
 
@@ -344,7 +379,9 @@ const ScholarshipReportDetailView = ({ report }: { report: any }) => {
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
             <span className="block text-[11px] font-semibold text-slate-500 mb-1">Seans Saati</span>
             <p className="text-sm font-semibold text-[#004899]">
-              {data.exam_session || data.examSession || data.session || '-'}
+              {(data.exam_session || data.examSession || data.session)
+                ? formatExamSessionLabel(data.exam_session || data.examSession || data.session)
+                : '-'}
             </p>
           </div>
 
@@ -517,7 +554,9 @@ export default function ReportCenter() {
     let kampus = data.campus_preference || data.campus || data.kampus || '';
     let kademe = data.grade_level || data.grade || data.studentGrade || data.kademe || '';
     let examDate = (data.exam_date || data.examDate) ? formatExamDateLabel(data.exam_date || data.examDate) : '';
-    let examSession = data.exam_session || data.examSession || data.session || '';
+    let examSession = (data.exam_session || data.examSession || data.session)
+      ? formatExamSessionLabel(data.exam_session || data.examSession || data.session)
+      : '';
     let message = data.notes || data.message || '';
     const otherFields: { label: string; value: any }[] = [];
 
@@ -561,7 +600,7 @@ export default function ReportCenter() {
       if (lowerKey === 'exam_date' || lowerKey === 'examdate') {
         if (!examDate) examDate = formatExamDateLabel(val);
       } else if (lowerKey === 'exam_session' || lowerKey === 'examsession') {
-        if (!examSession) examSession = String(val);
+        if (!examSession) examSession = formatExamSessionLabel(val);
       } else if (lowerKey.includes('kademe') || lowerKey.includes('sınıf') || lowerKey.includes('eğitim') || lowerKey.includes('grade') || lowerKey.includes('class') || lowerKey.includes('education')) {
         if (!kademe) kademe = String(val);
         else otherFields.push({ label, value: val });
@@ -716,9 +755,9 @@ export default function ReportCenter() {
         : '';
     const sessionSuffix =
       filterSessionSlot === '1'
-        ? '_10-00'
+        ? '_11-00'
         : filterSessionSlot === '2'
-        ? '_16-00'
+        ? '_15-00'
         : '';
 
     if (activeTab === 'scholarship') {
@@ -736,7 +775,11 @@ export default function ReportCenter() {
           examDate: cleanExcelText(
             (d.exam_date || d.examDate) ? formatExamDateLabel(d.exam_date || d.examDate) : sender.examDate
           ),
-          examSession: cleanExcelText(d.exam_session || d.examSession || sender.examSession),
+          examSession: cleanExcelText(
+            (d.exam_session || d.examSession)
+              ? formatExamSessionLabel(d.exam_session || d.examSession)
+              : sender.examSession
+          ),
           parentName: cleanExcelText(d.parent_fullname || d.parentName),
           phone: formatPhoneForExcel(d.parent_phone || d.parentPhone || sender.phone),
           email: cleanExcelText(d.parent_email || d.parentEmail || sender.email),
@@ -952,7 +995,10 @@ export default function ReportCenter() {
         const workingData = isSch
           ? {
               ...rep.data,
-              exam_date: formatExamDateLabel(rep.data.exam_date || rep.data.examDate)
+              exam_date: formatExamDateLabel(rep.data.exam_date || rep.data.examDate),
+              exam_session: formatExamSessionLabel(
+                rep.data.exam_session || rep.data.examSession || rep.data.session
+              )
             }
           : rep.data;
 
@@ -1248,284 +1294,310 @@ export default function ReportCenter() {
             </div>
           </div>
 
-          {/* Global Dropdown Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
-            <div className="relative">
-              <select
-                value={filterKampus}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFilterKampus(val);
-                  const bKey = normalizeCampusKey(val);
-                  if (bKey) {
-                    setFilterDateSlot(branchFilters[bKey].date);
-                    setFilterSessionSlot(branchFilters[bKey].session);
-                  }
+          {/* Renk Kodlu Şube Sekmeleri + Kademe Filtresi */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterKampus('');
+                  setFilterDateSlot('all');
+                  setFilterSessionSlot('all');
                 }}
-                className="w-full appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 tabular-nums flex items-center gap-1.5 ${
+                  !activeBranchKey
+                    ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
+                }`}
               >
-                <option value="">Tüm Şubeler (Kampüsler)</option>
-                <option value="ümitköy">Ümitköy Kampüsü</option>
-                <option value="eryaman">Eryaman Kampüsü</option>
-                <option value="oran">Oran Kampüsü</option>
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                <Building2 className="w-3.5 h-3.5" />
+                <span>
+                  Tüm Şubeler (
+                  {showScholarshipBranchMatrix ? scholarshipReportsAll.length : reports.length})
+                </span>
+              </button>
+
+              {REPORT_BRANCH_CONFIGS.map((branch) => {
+                const isSelected = activeBranchKey === branch.key;
+                const bState = branchFilters[branch.key];
+                const bCount = showScholarshipBranchMatrix
+                  ? getBranchCount(branch.key, 'all', 'all')
+                  : reports.filter(
+                      (r) => normalizeCampusKey(extractSenderInfo(r.data).kampus) === branch.key
+                    ).length;
+
+                return (
+                  <button
+                    key={branch.key}
+                    type="button"
+                    onClick={() => {
+                      setFilterKampus(branch.filterValue);
+                      setFilterDateSlot(bState.date);
+                      setFilterSessionSlot(bState.session);
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 tabular-nums flex items-center gap-1.5 ${
+                      isSelected ? branch.tabActive : branch.tabInactive
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>
+                      {branch.label} ({bCount})
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="relative">
-              <select
-                value={filterDateSlot}
-                onChange={(e) => {
-                  const nextDate = e.target.value as DateSlotFilter;
-                  setFilterDateSlot(nextDate);
-                  if (activeBranchKey) {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [activeBranchKey]: { ...prev[activeBranchKey], date: nextDate }
-                    }));
-                  }
-                }}
-                className="w-full appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
-              >
-                <option value="all">Tüm Sınav Tarihleri</option>
-                <option value="9_ocak">9 OCAK 2027 CUMARTESİ</option>
-                <option value="10_ocak">10 OCAK 2027 PAZAR</option>
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
-            </div>
-
-            <div className="relative">
-              <select
-                value={filterSessionSlot}
-                onChange={(e) => {
-                  const nextSession = e.target.value as SessionSlotFilter;
-                  setFilterSessionSlot(nextSession);
-                  if (activeBranchKey) {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [activeBranchKey]: { ...prev[activeBranchKey], session: nextSession }
-                    }));
-                  }
-                }}
-                className="w-full appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
-              >
-                <option value="all">Tüm Seans Saatleri</option>
-                <option value="1">Seans 1 • 10:00</option>
-                <option value="2">Seans 2 • 16:00</option>
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
-            </div>
-
-            <div className="relative">
-              <select
-                value={filterKademe}
-                onChange={(e) => setFilterKademe(e.target.value)}
-                className="w-full appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
-              >
-                <option value="">Tüm Kademeler</option>
-                <option value="anaokulu">Anaokulu</option>
-                <option value="ilkokul">İlkokul</option>
-                <option value="ortaokul">Ortaokul</option>
-                <option value="lise">Lise</option>
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
-            </div>
-          </div>
-        </div>
-
-        {/* ŞUBE BAZLI SINAV TARİHİ VE SEANS SAATİ AYRI AYRI FİLTRE PANOSU */}
-        {showScholarshipBranchMatrix && (
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-[#004899]" />
-                  Şube Bazında Sınav Tarihi ve Seans Saati Filtreleri
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Her şube için (Ümitköy, Eryaman, Oran) 9 Ocak Cumartesi / 10 Ocak Pazar ve 10:00 / 16:00 seanslarını ayrı ayrı seçerek filtreleyin.
-                </p>
+            <div className="flex items-center gap-2.5">
+              <div className="relative min-w-44">
+                <select
+                  value={filterKademe}
+                  onChange={(e) => setFilterKademe(e.target.value)}
+                  className="w-full appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
+                >
+                  <option value="">Tüm Kademeler</option>
+                  <option value="anaokulu">Anaokulu</option>
+                  <option value="ilkokul">İlkokul</option>
+                  <option value="ortaokul">Ortaokul</option>
+                  <option value="lise">Lise</option>
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
               </div>
+
               {hasAnyFilter && (
                 <button
                   type="button"
                   onClick={resetBranchAndGlobalFilters}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer whitespace-nowrap shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  Tüm Filtreleri Sıfırla
+                  Sıfırla
                 </button>
               )}
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {REPORT_BRANCH_CONFIGS.map((branch) => {
-                const isBranchSelected = activeBranchKey === branch.key;
-                const bState = branchFilters[branch.key];
-                const branchTotal = getBranchCount(branch.key, 'all', 'all');
-                const branchMatched = getBranchCount(branch.key, bState.date, bState.session);
+          {/* Şube Sekmesinin Hemen Altında Açılan Renk Uyumlu Sınav Tarihi & Seans (11:00 / 15:00) Filtresi */}
+          {showScholarshipBranchMatrix &&
+            (() => {
+              const selectedBranchCfg = REPORT_BRANCH_CONFIGS.find(
+                (b) => b.key === activeBranchKey
+              );
 
-                const sat10 = getBranchCount(branch.key, '9_ocak', '1');
-                const sat16 = getBranchCount(branch.key, '9_ocak', '2');
-                const sun10 = getBranchCount(branch.key, '10_ocak', '1');
-                const sun16 = getBranchCount(branch.key, '10_ocak', '2');
+              if (selectedBranchCfg) {
+                const bState = branchFilters[selectedBranchCfg.key];
+                const branchTotal = getBranchCount(selectedBranchCfg.key, 'all', 'all');
+                const branchMatched = getBranchCount(
+                  selectedBranchCfg.key,
+                  bState.date,
+                  bState.session
+                );
+
+                const sat11 = getBranchCount(selectedBranchCfg.key, '9_ocak', '1');
+                const sat15 = getBranchCount(selectedBranchCfg.key, '9_ocak', '2');
+                const sun11 = getBranchCount(selectedBranchCfg.key, '10_ocak', '1');
+                const sun15 = getBranchCount(selectedBranchCfg.key, '10_ocak', '2');
 
                 return (
                   <div
-                    key={branch.key}
-                    className={`p-4 rounded-xl border transition-all space-y-3.5 ${
-                      isBranchSelected
-                        ? 'border-[#004899] bg-blue-50/15 ring-2 ring-blue-100'
-                        : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'
-                    }`}
+                    className={`p-4 rounded-xl border transition-all space-y-3.5 ${selectedBranchCfg.panelSurface}`}
                   >
-                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/70">
-                      <button
-                        type="button"
-                        onClick={() => applyBranchFilter(branch.key, bState.date, bState.session)}
-                        className="flex items-center gap-2 text-left cursor-pointer"
-                      >
-                        <span className={`p-1.5 rounded-lg ${branch.accentBg}`}>
+                    <div
+                      className={`flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b ${selectedBranchCfg.panelDivider}`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className={`p-2 rounded-lg ${selectedBranchCfg.accentBg}`}>
                           <Building2 className="w-4 h-4" />
                         </span>
                         <div>
-                          <span className="text-sm font-bold text-slate-900 block leading-tight">
-                            {branch.label}
+                          <span
+                            className={`text-sm font-bold block leading-tight ${selectedBranchCfg.accentText}`}
+                          >
+                            {selectedBranchCfg.label} · Sınav Tarihi ve Seans Saati Filtresi
                           </span>
-                          <span className="text-[11px] text-slate-500 tabular-nums">
-                            Toplam {branchTotal} · Eşleşen: <strong className="text-slate-800">{branchMatched}</strong>
+                          <span className="text-xs text-slate-600 tabular-nums">
+                            Toplam {branchTotal} bursluluk başvurusu · Eşleşen:{' '}
+                            <strong className="text-slate-900">{branchMatched}</strong>
                           </span>
                         </div>
-                      </button>
+                      </div>
 
                       <button
                         type="button"
-                        onClick={() => applyBranchFilter(branch.key, 'all', 'all')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                          isBranchSelected && bState.date === 'all' && bState.session === 'all'
-                            ? 'bg-[#004899] text-white'
-                            : 'bg-white border border-slate-200 text-slate-600 hover:text-slate-900'
+                        onClick={() => applyBranchFilter(selectedBranchCfg.key, 'all', 'all')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                          bState.date === 'all' && bState.session === 'all'
+                            ? selectedBranchCfg.slotActive
+                            : selectedBranchCfg.slotInactive
                         }`}
                       >
-                        Şube Tümü
+                        Şube Tümü ({branchTotal})
                       </button>
                     </div>
 
-                    {/* Independent Tarih & Seans Dropdowns for THIS Branch */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div className="space-y-1">
-                        <label className="block text-[11px] font-semibold text-slate-500">
-                          Sınav Tarihi ({branch.shortLabel})
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+                      <div className="sm:col-span-6 lg:col-span-3 space-y-1">
+                        <label
+                          className={`block text-xs font-bold ${selectedBranchCfg.accentText}`}
+                        >
+                          Sınav Tarihi ({selectedBranchCfg.shortLabel})
                         </label>
                         <select
                           value={bState.date}
                           onChange={(e) =>
                             applyBranchFilter(
-                              branch.key,
+                              selectedBranchCfg.key,
                               e.target.value as DateSlotFilter,
                               bState.session
                             )
                           }
-                          className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#004899] cursor-pointer"
+                          className={`w-full px-3 py-2 bg-white border rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${selectedBranchCfg.selectBorder}`}
                         >
                           <option value="all">Tüm Tarihler ({branchTotal})</option>
                           <option value="9_ocak">
-                            9 Ocak Cmt ({getBranchCount(branch.key, '9_ocak', 'all')})
+                            9 Ocak Cumartesi ({getBranchCount(selectedBranchCfg.key, '9_ocak', 'all')})
                           </option>
                           <option value="10_ocak">
-                            10 Ocak Paz ({getBranchCount(branch.key, '10_ocak', 'all')})
+                            10 Ocak Pazar ({getBranchCount(selectedBranchCfg.key, '10_ocak', 'all')})
                           </option>
                         </select>
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="block text-[11px] font-semibold text-slate-500">
-                          Seans Saati ({branch.shortLabel})
+                      <div className="sm:col-span-6 lg:col-span-3 space-y-1">
+                        <label
+                          className={`block text-xs font-bold ${selectedBranchCfg.accentText}`}
+                        >
+                          Seans Saati ({selectedBranchCfg.shortLabel})
                         </label>
                         <select
                           value={bState.session}
                           onChange={(e) =>
                             applyBranchFilter(
-                              branch.key,
+                              selectedBranchCfg.key,
                               bState.date,
                               e.target.value as SessionSlotFilter
                             )
                           }
-                          className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#004899] cursor-pointer"
+                          className={`w-full px-3 py-2 bg-white border rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${selectedBranchCfg.selectBorder}`}
                         >
                           <option value="all">
-                            Tüm Saatler ({getBranchCount(branch.key, bState.date, 'all')})
+                            Tüm Saatler ({getBranchCount(selectedBranchCfg.key, bState.date, 'all')})
                           </option>
                           <option value="1">
-                            10:00 Seansı ({getBranchCount(branch.key, bState.date, '1')})
+                            1. Seans • 11:00 ({getBranchCount(selectedBranchCfg.key, bState.date, '1')})
                           </option>
                           <option value="2">
-                            16:00 Seansı ({getBranchCount(branch.key, bState.date, '2')})
+                            2. Seans • 15:00 ({getBranchCount(selectedBranchCfg.key, bState.date, '2')})
                           </option>
                         </select>
                       </div>
-                    </div>
 
-                    {/* Quick 4-Slot Breakdown Buttons for THIS Branch */}
-                    <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => applyBranchFilter(branch.key, '9_ocak', '1')}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                          isBranchSelected && bState.date === '9_ocak' && bState.session === '1'
-                            ? 'bg-[#004899] text-white border-[#004899]'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <span>9 Ocak · 10:00</span>
-                        <span className="font-mono">{sat10}</span>
-                      </button>
+                      <div className="lg:col-span-6 space-y-1">
+                        <span
+                          className={`block text-xs font-bold ${selectedBranchCfg.accentText}`}
+                        >
+                          Hızlı Seans Seçimi ({selectedBranchCfg.shortLabel})
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => applyBranchFilter(selectedBranchCfg.key, '9_ocak', '1')}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                              bState.date === '9_ocak' && bState.session === '1'
+                                ? selectedBranchCfg.slotActive
+                                : selectedBranchCfg.slotInactive
+                            }`}
+                          >
+                            <span>9 Ocak · 11:00</span>
+                            <span className="font-mono">{sat11}</span>
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => applyBranchFilter(branch.key, '9_ocak', '2')}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                          isBranchSelected && bState.date === '9_ocak' && bState.session === '2'
-                            ? 'bg-[#004899] text-white border-[#004899]'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <span>9 Ocak · 16:00</span>
-                        <span className="font-mono">{sat16}</span>
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => applyBranchFilter(selectedBranchCfg.key, '9_ocak', '2')}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                              bState.date === '9_ocak' && bState.session === '2'
+                                ? selectedBranchCfg.slotActive
+                                : selectedBranchCfg.slotInactive
+                            }`}
+                          >
+                            <span>9 Ocak · 15:00</span>
+                            <span className="font-mono">{sat15}</span>
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => applyBranchFilter(branch.key, '10_ocak', '1')}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                          isBranchSelected && bState.date === '10_ocak' && bState.session === '1'
-                            ? 'bg-[#004899] text-white border-[#004899]'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <span>10 Ocak · 10:00</span>
-                        <span className="font-mono">{sun10}</span>
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => applyBranchFilter(selectedBranchCfg.key, '10_ocak', '1')}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                              bState.date === '10_ocak' && bState.session === '1'
+                                ? selectedBranchCfg.slotActive
+                                : selectedBranchCfg.slotInactive
+                            }`}
+                          >
+                            <span>10 Ocak · 11:00</span>
+                            <span className="font-mono">{sun11}</span>
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => applyBranchFilter(branch.key, '10_ocak', '2')}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                          isBranchSelected && bState.date === '10_ocak' && bState.session === '2'
-                            ? 'bg-[#004899] text-white border-[#004899]'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <span>10 Ocak · 16:00</span>
-                        <span className="font-mono">{sun16}</span>
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => applyBranchFilter(selectedBranchCfg.key, '10_ocak', '2')}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                              bState.date === '10_ocak' && bState.session === '2'
+                                ? selectedBranchCfg.slotActive
+                                : selectedBranchCfg.slotInactive
+                            }`}
+                          >
+                            <span>10 Ocak · 15:00</span>
+                            <span className="font-mono">{sun15}</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
-              })}
-            </div>
-          </div>
-        )}
+              }
+
+              // Tüm Şubeler seçiliyken kompakt tarih & seans filtresi
+              return (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative">
+                      <select
+                        value={filterDateSlot}
+                        onChange={(e) => setFilterDateSlot(e.target.value as DateSlotFilter)}
+                        className="appearance-none pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
+                      >
+                        <option value="all">Tüm Sınav Tarihleri</option>
+                        <option value="9_ocak">9 OCAK 2027 CUMARTESİ</option>
+                        <option value="10_ocak">10 OCAK 2027 PAZAR</option>
+                      </select>
+                      <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        value={filterSessionSlot}
+                        onChange={(e) => setFilterSessionSlot(e.target.value as SessionSlotFilter)}
+                        className="appearance-none pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#38C1D2] cursor-pointer"
+                      >
+                        <option value="all">Tüm Seans Saatleri</option>
+                        <option value="1">1. Seans • 11:00</option>
+                        <option value="2">2. Seans • 15:00</option>
+                      </select>
+                      <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-500">
+                    Şubeye özel renkli tarih ve seans filtresini açmak için yukarıdan{' '}
+                    <strong className="text-emerald-700">Ümitköy</strong>,{' '}
+                    <strong className="text-[#004899]">Eryaman</strong> veya{' '}
+                    <strong className="text-amber-700">Oran</strong> sekmesine tıklayın.
+                  </p>
+                </div>
+              );
+            })()}
+        </div>
 
         {/* Main List */}
         <div className="space-y-4">

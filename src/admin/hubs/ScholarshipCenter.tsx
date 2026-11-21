@@ -37,6 +37,7 @@ import {
 import {
   buildWhatsAppTicketUrl,
   normalizeSessionSlot,
+  formatExamSessionLabel,
   normalizeExamDateSlot,
   formatExamDateLabel,
   getCachedContactCampuses,
@@ -57,51 +58,89 @@ type BranchKey = 'umitkoy' | 'eryaman' | 'oran';
 type DateFilterValue = 'all' | '9_ocak' | '10_ocak';
 type SessionFilterValue = 'all' | '1' | '2';
 
-const BRANCH_CONFIGS: {
+interface BranchThemeConfig {
   key: BranchKey;
   label: string;
   shortLabel: string;
   accentText: string;
   accentBg: string;
-}[] = [
+  tabActive: string;
+  tabInactive: string;
+  statCardActive: string;
+  panelSurface: string;
+  panelDivider: string;
+  selectBorder: string;
+  slotActive: string;
+  slotInactive: string;
+  gradeHasItems: string;
+}
+
+const BRANCH_CONFIGS: BranchThemeConfig[] = [
   {
     key: 'umitkoy',
     label: 'Ümitköy Kampüsü',
     shortLabel: 'Ümitköy',
-    accentText: 'text-emerald-700',
-    accentBg: 'bg-emerald-50 text-emerald-700'
+    accentText: 'text-emerald-800',
+    accentBg: 'bg-emerald-100 text-emerald-700',
+    tabActive: 'bg-emerald-600 text-white border-emerald-600 shadow-xs',
+    tabInactive: 'bg-emerald-50/90 text-emerald-800 border-emerald-200 hover:bg-emerald-100',
+    statCardActive: 'border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/15',
+    panelSurface: 'bg-emerald-50/50 border-emerald-200',
+    panelDivider: 'border-emerald-200/70',
+    selectBorder: 'border-emerald-200 focus:border-emerald-600',
+    slotActive: 'bg-emerald-600 text-white border-emerald-600 shadow-2xs',
+    slotInactive: 'bg-white text-emerald-950 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60',
+    gradeHasItems: 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
   },
   {
     key: 'eryaman',
     label: 'Eryaman Kampüsü',
     shortLabel: 'Eryaman',
     accentText: 'text-[#004899]',
-    accentBg: 'bg-blue-50 text-[#004899]'
+    accentBg: 'bg-blue-100 text-[#004899]',
+    tabActive: 'bg-[#004899] text-white border-[#004899] shadow-xs',
+    tabInactive: 'bg-blue-50/90 text-[#004899] border-blue-200 hover:bg-blue-100',
+    statCardActive: 'border-[#004899] bg-blue-50/40 ring-2 ring-[#004899]/15',
+    panelSurface: 'bg-blue-50/50 border-blue-200',
+    panelDivider: 'border-blue-200/70',
+    selectBorder: 'border-blue-200 focus:border-[#004899]',
+    slotActive: 'bg-[#004899] text-white border-[#004899] shadow-2xs',
+    slotInactive: 'bg-white text-[#002147] border-blue-200 hover:border-[#004899] hover:bg-blue-50/60',
+    gradeHasItems: 'bg-blue-50 text-[#004899] border-blue-200 hover:bg-blue-100'
   },
   {
     key: 'oran',
     label: 'Oran Kampüsü',
     shortLabel: 'Oran',
-    accentText: 'text-amber-700',
-    accentBg: 'bg-amber-50 text-amber-700'
+    accentText: 'text-amber-800',
+    accentBg: 'bg-amber-100 text-amber-700',
+    tabActive: 'bg-amber-600 text-white border-amber-600 shadow-xs',
+    tabInactive: 'bg-amber-50/90 text-amber-800 border-amber-200 hover:bg-amber-100',
+    statCardActive: 'border-amber-500 bg-amber-50/40 ring-2 ring-amber-500/15',
+    panelSurface: 'bg-amber-50/50 border-amber-200',
+    panelDivider: 'border-amber-200/70',
+    selectBorder: 'border-amber-200 focus:border-amber-600',
+    slotActive: 'bg-amber-600 text-white border-amber-600 shadow-2xs',
+    slotInactive: 'bg-white text-amber-950 border-amber-200 hover:border-amber-400 hover:bg-amber-50/60',
+    gradeHasItems: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
   }
 ];
 
 const CAMPUS_SESSION_SLOTS = [
-  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '1' as const, sessionLabel: 'Seans 1 • 10:00', defaultLimit: 300 },
-  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '2' as const, sessionLabel: 'Seans 2 • 16:00', defaultLimit: 300 },
-  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '1' as const, sessionLabel: 'Seans 1 • 10:00', defaultLimit: 300 },
-  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '2' as const, sessionLabel: 'Seans 2 • 16:00', defaultLimit: 300 },
+  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '1' as const, sessionLabel: '1. Seans • 11:00', defaultLimit: 300 },
+  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '2' as const, sessionLabel: '2. Seans • 15:00', defaultLimit: 300 },
+  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '1' as const, sessionLabel: '1. Seans • 11:00', defaultLimit: 300 },
+  { campusKey: 'eryaman' as BranchKey, campusLabel: 'Eryaman Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '2' as const, sessionLabel: '2. Seans • 15:00', defaultLimit: 300 },
 
-  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '1' as const, sessionLabel: 'Seans 1 • 10:00', defaultLimit: 200 },
-  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '2' as const, sessionLabel: 'Seans 2 • 16:00', defaultLimit: 200 },
-  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '1' as const, sessionLabel: 'Seans 1 • 10:00', defaultLimit: 200 },
-  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '2' as const, sessionLabel: 'Seans 2 • 16:00', defaultLimit: 200 },
+  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '1' as const, sessionLabel: '1. Seans • 11:00', defaultLimit: 200 },
+  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '2' as const, sessionLabel: '2. Seans • 15:00', defaultLimit: 200 },
+  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '1' as const, sessionLabel: '1. Seans • 11:00', defaultLimit: 200 },
+  { campusKey: 'umitkoy' as BranchKey, campusLabel: 'Ümitköy Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '2' as const, sessionLabel: '2. Seans • 15:00', defaultLimit: 200 },
 
-  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '1' as const, sessionLabel: 'Seans 1 • 10:00', defaultLimit: 200 },
-  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '2' as const, sessionLabel: 'Seans 2 • 16:00', defaultLimit: 200 },
-  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '1' as const, sessionLabel: 'Seans 1 • 10:00', defaultLimit: 200 },
-  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '2' as const, sessionLabel: 'Seans 2 • 16:00', defaultLimit: 200 }
+  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '1' as const, sessionLabel: '1. Seans • 11:00', defaultLimit: 200 },
+  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '9_ocak' as const, dateLabel: '9 Ocak 2027 Cumartesi', slot: '2' as const, sessionLabel: '2. Seans • 15:00', defaultLimit: 200 },
+  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '1' as const, sessionLabel: '1. Seans • 11:00', defaultLimit: 200 },
+  { campusKey: 'oran' as BranchKey, campusLabel: 'Oran Kampüsü', dateSlot: '10_ocak' as const, dateLabel: '10 Ocak 2027 Pazar', slot: '2' as const, sessionLabel: '2. Seans • 15:00', defaultLimit: 200 }
 ] as const;
 
 function toSafeMillis(raw: any): number {
@@ -282,12 +321,9 @@ const ScholarshipReportView = ({ report }: { report: any }) => {
                 Sınav Saati / Seansı
               </span>
               <p className="text-sm font-semibold text-slate-800">
-                {data.exam_session ||
-                  data.examSession ||
-                  data.session ||
-                  data.academic_year ||
-                  data.academicYear ||
-                  '-'}
+                {(data.exam_session || data.examSession || data.session)
+                  ? formatExamSessionLabel(data.exam_session || data.examSession || data.session)
+                  : (data.academic_year || data.academicYear || '-')}
               </p>
             </div>
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 md:col-span-1">
@@ -538,7 +574,7 @@ export default function ScholarshipCenter() {
     let kampus = data.campus_preference || data.campus || data.kampus || '';
     let kademe = data.grade_level || data.grade || data.studentGrade || data.kademe || '';
     let examDate = formatExamDateLabel(data.exam_date || data.examDate);
-    let session = data.exam_session || data.examSession || data.session || '';
+    let session = formatExamSessionLabel(data.exam_session || data.examSession || data.session || '');
     let school = data.current_school || data.school || '';
     let source = data.discovery_source || data.referral || data.heardFrom || '';
     let message = data.notes || data.message || '';
@@ -754,7 +790,7 @@ export default function ScholarshipCenter() {
       studentName: sender.name,
       grade: gradeFormatted,
       examDate: sender.examDate,
-      examTime: parseExamSessionTime(sender.session || 'Seans 1: 10:00'),
+      examTime: parseExamSessionTime(sender.session || 'Seans 1: 11:00'),
       campusName,
       campusAddress,
       ticketId
@@ -863,7 +899,7 @@ export default function ScholarshipCenter() {
         studentTc: data.student_tc || data.studentTc || data.tc || '-',
         grade: gradeFormatted,
         examDate: sender.examDate,
-        examTime: parseExamSessionTime(sender.session || 'Seans 1: 10:00'),
+        examTime: parseExamSessionTime(sender.session || 'Seans 1: 11:00'),
         campusName,
         campusAddress,
         documentTitle: 'Bursluluk Sınavı Giriş Belgesi',
@@ -893,9 +929,9 @@ export default function ScholarshipCenter() {
         : 'Tum-Tarihler';
     const sessionPart =
       selectedSessionFilter === '1'
-        ? '10-00'
+        ? '11-00'
         : selectedSessionFilter === '2'
-        ? '16-00'
+        ? '15-00'
         : 'Tum-Seanslar';
     const gradeName = selectedGradeFilter === 'all' ? 'Tum-Siniflar' : `${selectedGradeFilter}-Sinif`;
     const fileName = `Bursluluk_${campusName}_${datePart}_${sessionPart}_${gradeName}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
@@ -1071,7 +1107,7 @@ export default function ScholarshipCenter() {
                   Şube, Sınav Tarihi ve Seans Kontenjan Yönetimi
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Her şubenin 9 Ocak Cumartesi ve 10 Ocak Pazar (10:00 / 16:00) seanslarını ayrı ayrı açıp kapatabilir ve kontenjan limiti tanımlayabilirsiniz.
+                  Her şubenin 9 Ocak Cumartesi ve 10 Ocak Pazar (11:00 / 15:00) seanslarını ayrı ayrı açıp kapatabilir ve kontenjan limiti tanımlayabilirsiniz.
                 </p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
@@ -1090,47 +1126,26 @@ export default function ScholarshipCenter() {
             </div>
 
             {/* Branch Tabs inside Capacity Panel */}
-            <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-              <button
-                type="button"
-                onClick={() => setCapacityBranchTab('eryaman')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                  capacityBranchTab === 'eryaman'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Eryaman Kampüsü
-              </button>
-              <button
-                type="button"
-                onClick={() => setCapacityBranchTab('umitkoy')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                  capacityBranchTab === 'umitkoy'
-                    ? 'bg-white text-emerald-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Ümitköy Kampüsü
-              </button>
-              <button
-                type="button"
-                onClick={() => setCapacityBranchTab('oran')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                  capacityBranchTab === 'oran'
-                    ? 'bg-white text-amber-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Oran Kampüsü
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {BRANCH_CONFIGS.map((b) => (
+                <button
+                  key={b.key}
+                  type="button"
+                  onClick={() => setCapacityBranchTab(b.key)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    capacityBranchTab === b.key ? b.tabActive : b.tabInactive
+                  }`}
+                >
+                  {b.label}
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={() => setCapacityBranchTab('all')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                   capacityBranchTab === 'all'
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
                 }`}
               >
                 Tüm Şubeler (12 Seans)
@@ -1227,17 +1242,17 @@ export default function ScholarshipCenter() {
           </div>
         )}
 
-        {/* Stats Row - Toplam Başvuru ve Şubelere Göre Dağılım */}
+        {/* Stats Row - Toplam Başvuru ve Şubelere Göre Renk Kodlu Dağılım */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div
             onClick={() => selectCampusTab('all')}
             className={`bg-white p-5 rounded-2xl border transition-all flex items-center gap-4 cursor-pointer ${
               selectedCampusTab === 'all'
-                ? 'border-[#004899] bg-blue-50/20 ring-2 ring-blue-100'
+                ? 'border-slate-800 bg-slate-50 ring-2 ring-slate-800/10'
                 : 'border-slate-200/80 hover:border-slate-300'
             }`}
           >
-            <div className="p-3 bg-blue-50 text-[#004899] rounded-xl font-bold">
+            <div className="p-3 bg-slate-100 text-slate-800 rounded-xl font-bold">
               <Award className="w-6 h-6" />
             </div>
             <div>
@@ -1252,15 +1267,15 @@ export default function ScholarshipCenter() {
             onClick={() => selectCampusTab('umitkoy')}
             className={`bg-white p-5 rounded-2xl border transition-all flex items-center gap-4 cursor-pointer ${
               selectedCampusTab === 'umitkoy'
-                ? 'border-[#004899] bg-blue-50/20 ring-2 ring-blue-100'
-                : 'border-slate-200/80 hover:border-slate-300'
+                ? BRANCH_CONFIGS[0].statCardActive
+                : 'border-emerald-200/70 hover:border-emerald-400'
             }`}
           >
-            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl font-bold">
+            <div className="p-3 bg-emerald-100 text-emerald-700 rounded-xl font-bold">
               <Building2 className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 block">
+              <span className="text-xs font-semibold text-emerald-800 block">
                 Ümitköy Kampüsü
               </span>
               <span className="text-2xl font-black text-slate-900 tabular-nums">{umitkoyTotalCount}</span>
@@ -1271,15 +1286,15 @@ export default function ScholarshipCenter() {
             onClick={() => selectCampusTab('eryaman')}
             className={`bg-white p-5 rounded-2xl border transition-all flex items-center gap-4 cursor-pointer ${
               selectedCampusTab === 'eryaman'
-                ? 'border-[#004899] bg-blue-50/20 ring-2 ring-blue-100'
-                : 'border-slate-200/80 hover:border-slate-300'
+                ? BRANCH_CONFIGS[1].statCardActive
+                : 'border-blue-200/70 hover:border-[#004899]/60'
             }`}
           >
-            <div className="p-3 bg-blue-50 text-[#004899] rounded-xl font-bold">
+            <div className="p-3 bg-blue-100 text-[#004899] rounded-xl font-bold">
               <Building2 className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 block">
+              <span className="text-xs font-semibold text-[#004899] block">
                 Eryaman Kampüsü
               </span>
               <span className="text-2xl font-black text-slate-900 tabular-nums">{eryamanTotalCount}</span>
@@ -1290,15 +1305,15 @@ export default function ScholarshipCenter() {
             onClick={() => selectCampusTab('oran')}
             className={`bg-white p-5 rounded-2xl border transition-all flex items-center gap-4 cursor-pointer ${
               selectedCampusTab === 'oran'
-                ? 'border-[#004899] bg-blue-50/20 ring-2 ring-blue-100'
-                : 'border-slate-200/80 hover:border-slate-300'
+                ? BRANCH_CONFIGS[2].statCardActive
+                : 'border-amber-200/70 hover:border-amber-400'
             }`}
           >
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-xl font-bold">
+            <div className="p-3 bg-amber-100 text-amber-700 rounded-xl font-bold">
               <Building2 className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 block">
+              <span className="text-xs font-semibold text-amber-800 block">
                 Oran Kampüsü
               </span>
               <span className="text-2xl font-black text-slate-900 tabular-nums">{oranTotalCount}</span>
@@ -1306,489 +1321,449 @@ export default function ScholarshipCenter() {
           </div>
         </div>
 
-        {/* ŞUBE BAZLI SINAV TARİHİ & SEANS SAATİ AYRI AYRI FİLTRE PANOSU */}
+        {/* Şube Sekmeleri + Şube Altı Renk Kodlu Tarih & Seans Filtresi + Sınıf Kademesi + Arama */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-[#004899]" />
-                Şube Bazlı Sınav Tarihi ve Seans Saati Filtreleri
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Ümitköy, Eryaman ve Oran şubelerinin her biri için sınav tarihini ve seans saatini ayrı ayrı seçerek listeleyebilirsiniz.
-              </p>
-            </div>
-            {hasActiveFilter && (
+          {/* 1. Üst Satır: Renk Kodlu Şube Sekmeleri + Arama + Excel İndir */}
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={resetAllFilters}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer whitespace-nowrap shrink-0"
+                onClick={() => selectCampusTab('all')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shrink-0 cursor-pointer tabular-nums flex items-center gap-2 ${
+                  selectedCampusTab === 'all'
+                    ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
+                }`}
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Tüm Şube Filtrelerini Sıfırla
+                <Award className="w-3.5 h-3.5" />
+                <span>Tüm Şubeler ({totalScholarshipCount})</span>
               </button>
-            )}
+
+              {BRANCH_CONFIGS.map((b) => {
+                const isTabSelected = selectedCampusTab === b.key;
+                const bCount =
+                  b.key === 'umitkoy'
+                    ? umitkoyTotalCount
+                    : b.key === 'eryaman'
+                    ? eryamanTotalCount
+                    : oranTotalCount;
+
+                return (
+                  <button
+                    key={b.key}
+                    type="button"
+                    onClick={() => selectCampusTab(b.key)}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shrink-0 cursor-pointer tabular-nums flex items-center gap-2 ${
+                      isTabSelected ? b.tabActive : b.tabInactive
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>
+                      {b.label} ({bCount})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <div className="relative w-full sm:w-68">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Öğrenci, veli, TC veya Belge No ara..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={downloadExcel}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap cursor-pointer tabular-nums"
+              >
+                <Download className="w-4 h-4" />
+                Excel İndir (.xlsx) ({filteredReports.length})
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {BRANCH_CONFIGS.map((branch) => {
-              const isBranchActive = selectedCampusTab === branch.key;
-              const bState = branchFilters[branch.key];
-              const branchTotal = getBranchSlotCount(branch.key, 'all', 'all');
-              const branchMatched = getBranchSlotCount(branch.key, bState.date, bState.session);
+          {/* 2. Şube Sekmesinin Hemen Altında Açılan Renk Uyumlu Tarih & Seans Filtre Paneli */}
+          {(() => {
+            const activeBranchCfg = BRANCH_CONFIGS.find((b) => b.key === selectedCampusTab);
 
-              const sat10 = getBranchSlotCount(branch.key, '9_ocak', '1');
-              const sat16 = getBranchSlotCount(branch.key, '9_ocak', '2');
-              const sun10 = getBranchSlotCount(branch.key, '10_ocak', '1');
-              const sun16 = getBranchSlotCount(branch.key, '10_ocak', '2');
+            if (activeBranchCfg) {
+              const bState = branchFilters[activeBranchCfg.key];
+              const branchTotal = getBranchSlotCount(activeBranchCfg.key, 'all', 'all');
+              const branchMatched = getBranchSlotCount(
+                activeBranchCfg.key,
+                bState.date,
+                bState.session
+              );
+
+              const sat11 = getBranchSlotCount(activeBranchCfg.key, '9_ocak', '1');
+              const sat15 = getBranchSlotCount(activeBranchCfg.key, '9_ocak', '2');
+              const sun11 = getBranchSlotCount(activeBranchCfg.key, '10_ocak', '1');
+              const sun15 = getBranchSlotCount(activeBranchCfg.key, '10_ocak', '2');
 
               return (
                 <div
-                  key={branch.key}
-                  className={`p-4 rounded-xl border transition-all space-y-3.5 ${
-                    isBranchActive
-                      ? 'border-[#004899] bg-blue-50/15 ring-2 ring-blue-100'
-                      : 'border-slate-200 bg-slate-50/40 hover:border-slate-300'
-                  }`}
+                  className={`p-4 rounded-xl border transition-all space-y-3.5 ${activeBranchCfg.panelSurface}`}
                 >
-                  {/* Branch Header */}
-                  <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/70">
-                    <button
-                      type="button"
-                      onClick={() => selectCampusTab(branch.key)}
-                      className="flex items-center gap-2 text-left cursor-pointer"
-                    >
-                      <span className={`p-1.5 rounded-lg ${branch.accentBg}`}>
+                  {/* Şube Filtre Başlığı */}
+                  <div
+                    className={`flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b ${activeBranchCfg.panelDivider}`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className={`p-2 rounded-lg ${activeBranchCfg.accentBg}`}>
                         <Building2 className="w-4 h-4" />
                       </span>
                       <div>
-                        <span className="text-sm font-bold text-slate-900 block leading-tight">
-                          {branch.label}
+                        <span
+                          className={`text-sm font-bold block leading-tight ${activeBranchCfg.accentText}`}
+                        >
+                          {activeBranchCfg.label} · Sınav Tarihi ve Seans Filtresi
                         </span>
-                        <span className="text-[11px] text-slate-500 tabular-nums">
-                          Toplam {branchTotal} başvuru · Eşleşen: <strong className="text-slate-800">{branchMatched}</strong>
+                        <span className="text-xs text-slate-600 tabular-nums">
+                          Toplam {branchTotal} başvuru · Seçili seans eşleşen:{' '}
+                          <strong className="text-slate-900">{branchMatched}</strong>
                         </span>
                       </div>
-                    </button>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => applyBranchFilter(branch.key, 'all', 'all')}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                        isBranchActive && bState.date === 'all' && bState.session === 'all'
-                          ? 'bg-[#004899] text-white'
-                          : 'bg-white border border-slate-200 text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Şube Tümü
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyBranchFilter(activeBranchCfg.key, 'all', 'all')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                          bState.date === 'all' && bState.session === 'all'
+                            ? activeBranchCfg.slotActive
+                            : activeBranchCfg.slotInactive
+                        }`}
+                      >
+                        Şube Tümü ({branchTotal})
+                      </button>
+
+                      {hasActiveFilter && (
+                        <button
+                          type="button"
+                          onClick={resetAllFilters}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Tümünü Sıfırla
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Independent Date & Session Dropdowns for THIS Branch */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-semibold text-slate-500">
-                        Sınav Tarihi ({branch.shortLabel})
+                  {/* Açılır Menüler + Hızlı 4 Seans Butonu (Aynı Şube Renginde) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+                    <div className="sm:col-span-6 lg:col-span-3 space-y-1">
+                      <label className={`block text-xs font-bold ${activeBranchCfg.accentText}`}>
+                        Sınav Tarihi ({activeBranchCfg.shortLabel})
                       </label>
                       <select
                         value={bState.date}
                         onChange={(e) =>
                           applyBranchFilter(
-                            branch.key,
+                            activeBranchCfg.key,
                             e.target.value as DateFilterValue,
                             bState.session
                           )
                         }
-                        className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#004899] cursor-pointer"
+                        className={`w-full px-3 py-2 bg-white border rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${activeBranchCfg.selectBorder}`}
                       >
                         <option value="all">Tüm Tarihler ({branchTotal})</option>
                         <option value="9_ocak">
-                          9 Ocak Cmt ({getBranchSlotCount(branch.key, '9_ocak', 'all')})
+                          9 Ocak Cumartesi ({getBranchSlotCount(activeBranchCfg.key, '9_ocak', 'all')})
                         </option>
                         <option value="10_ocak">
-                          10 Ocak Paz ({getBranchSlotCount(branch.key, '10_ocak', 'all')})
+                          10 Ocak Pazar ({getBranchSlotCount(activeBranchCfg.key, '10_ocak', 'all')})
                         </option>
                       </select>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-semibold text-slate-500">
-                        Seans Saati ({branch.shortLabel})
+                    <div className="sm:col-span-6 lg:col-span-3 space-y-1">
+                      <label className={`block text-xs font-bold ${activeBranchCfg.accentText}`}>
+                        Seans Saati ({activeBranchCfg.shortLabel})
                       </label>
                       <select
                         value={bState.session}
                         onChange={(e) =>
                           applyBranchFilter(
-                            branch.key,
+                            activeBranchCfg.key,
                             bState.date,
                             e.target.value as SessionFilterValue
                           )
                         }
-                        className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#004899] cursor-pointer"
+                        className={`w-full px-3 py-2 bg-white border rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${activeBranchCfg.selectBorder}`}
                       >
                         <option value="all">
-                          Tüm Saatler ({getBranchSlotCount(branch.key, bState.date, 'all')})
+                          Tüm Saatler ({getBranchSlotCount(activeBranchCfg.key, bState.date, 'all')})
                         </option>
                         <option value="1">
-                          10:00 Seansı ({getBranchSlotCount(branch.key, bState.date, '1')})
+                          1. Seans • 11:00 ({getBranchSlotCount(activeBranchCfg.key, bState.date, '1')})
                         </option>
                         <option value="2">
-                          16:00 Seansı ({getBranchSlotCount(branch.key, bState.date, '2')})
+                          2. Seans • 15:00 ({getBranchSlotCount(activeBranchCfg.key, bState.date, '2')})
                         </option>
                       </select>
                     </div>
-                  </div>
 
-                  {/* Quick 4-Slot Breakdown Buttons for THIS Branch */}
-                  <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => applyBranchFilter(branch.key, '9_ocak', '1')}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                        isBranchActive && bState.date === '9_ocak' && bState.session === '1'
-                          ? 'bg-[#004899] text-white border-[#004899]'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <span>9 Ocak · 10:00</span>
-                      <span className="font-mono">{sat10}</span>
-                    </button>
+                    <div className="lg:col-span-6 space-y-1">
+                      <span className={`block text-xs font-bold ${activeBranchCfg.accentText}`}>
+                        Hızlı Seans Seçimi ({activeBranchCfg.shortLabel})
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => applyBranchFilter(activeBranchCfg.key, '9_ocak', '1')}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                            bState.date === '9_ocak' && bState.session === '1'
+                              ? activeBranchCfg.slotActive
+                              : activeBranchCfg.slotInactive
+                          }`}
+                        >
+                          <span>9 Ocak · 11:00</span>
+                          <span className="font-mono">{sat11}</span>
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => applyBranchFilter(branch.key, '9_ocak', '2')}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                        isBranchActive && bState.date === '9_ocak' && bState.session === '2'
-                          ? 'bg-[#004899] text-white border-[#004899]'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <span>9 Ocak · 16:00</span>
-                      <span className="font-mono">{sat16}</span>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => applyBranchFilter(activeBranchCfg.key, '9_ocak', '2')}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                            bState.date === '9_ocak' && bState.session === '2'
+                              ? activeBranchCfg.slotActive
+                              : activeBranchCfg.slotInactive
+                          }`}
+                        >
+                          <span>9 Ocak · 15:00</span>
+                          <span className="font-mono">{sat15}</span>
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => applyBranchFilter(branch.key, '10_ocak', '1')}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                        isBranchActive && bState.date === '10_ocak' && bState.session === '1'
-                          ? 'bg-[#004899] text-white border-[#004899]'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <span>10 Ocak · 10:00</span>
-                      <span className="font-mono">{sun10}</span>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => applyBranchFilter(activeBranchCfg.key, '10_ocak', '1')}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                            bState.date === '10_ocak' && bState.session === '1'
+                              ? activeBranchCfg.slotActive
+                              : activeBranchCfg.slotInactive
+                          }`}
+                        >
+                          <span>10 Ocak · 11:00</span>
+                          <span className="font-mono">{sun11}</span>
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => applyBranchFilter(branch.key, '10_ocak', '2')}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors border text-left flex items-center justify-between gap-1 cursor-pointer tabular-nums whitespace-nowrap ${
-                        isBranchActive && bState.date === '10_ocak' && bState.session === '2'
-                          ? 'bg-[#004899] text-white border-[#004899]'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <span>10 Ocak · 16:00</span>
-                      <span className="font-mono">{sun16}</span>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => applyBranchFilter(activeBranchCfg.key, '10_ocak', '2')}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between gap-1.5 cursor-pointer tabular-nums whitespace-nowrap ${
+                            bState.date === '10_ocak' && bState.session === '2'
+                              ? activeBranchCfg.slotActive
+                              : activeBranchCfg.slotInactive
+                          }`}
+                        >
+                          <span>10 Ocak · 15:00</span>
+                          <span className="font-mono">{sun15}</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
-            })}
-          </div>
-        </div>
+            }
 
-        {/* Genel Tarih, Seans Özeti & Dijital Reklam Kanalı Dağılımı */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white p-4 px-5 rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              <Calendar className="w-4 h-4 text-[#004899]" />
-              <span>Sınav Tarihi:</span>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedDateFilter('all');
-                  if (selectedCampusTab !== 'all') {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [selectedCampusTab]: { ...prev[selectedCampusTab], date: 'all' }
-                    }));
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
-                  selectedDateFilter === 'all'
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Tümü ({campusScopedReports.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedDateFilter('9_ocak');
-                  if (selectedCampusTab !== 'all') {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [selectedCampusTab]: { ...prev[selectedCampusTab], date: '9_ocak' }
-                    }));
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
-                  selectedDateFilter === '9_ocak'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                9 Ocak Cmt ({satCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedDateFilter('10_ocak');
-                  if (selectedCampusTab !== 'all') {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [selectedCampusTab]: { ...prev[selectedCampusTab], date: '10_ocak' }
-                    }));
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
-                  selectedDateFilter === '10_ocak'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                10 Ocak Paz ({sunCount})
-              </button>
-            </div>
-          </div>
+            // "Tüm Şubeler" seçiliyken kompakt genel tarih/seans çubuğu ve şube yönlendirmesi
+            return (
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-slate-600" />
+                    <span className="text-xs font-bold text-slate-700">Tarih:</span>
+                    <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDateFilter('all')}
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                          selectedDateFilter === 'all'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Tümü ({campusScopedReports.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDateFilter('9_ocak')}
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                          selectedDateFilter === '9_ocak'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        9 Ocak Cmt ({satCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDateFilter('10_ocak')}
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                          selectedDateFilter === '10_ocak'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        10 Ocak Paz ({sunCount})
+                      </button>
+                    </div>
+                  </div>
 
-          <div className="bg-white p-4 px-5 rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              <Clock className="w-4 h-4 text-[#004899]" />
-              <span>Seans Saati:</span>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedSessionFilter('all');
-                  if (selectedCampusTab !== 'all') {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [selectedCampusTab]: { ...prev[selectedCampusTab], session: 'all' }
-                    }));
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
-                  selectedSessionFilter === 'all'
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Tümü ({dateScopedReports.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedSessionFilter('1');
-                  if (selectedCampusTab !== 'all') {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [selectedCampusTab]: { ...prev[selectedCampusTab], session: '1' }
-                    }));
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
-                  selectedSessionFilter === '1'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                10:00 ({session1Count})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedSessionFilter('2');
-                  if (selectedCampusTab !== 'all') {
-                    setBranchFilters((prev) => ({
-                      ...prev,
-                      [selectedCampusTab]: { ...prev[selectedCampusTab], session: '2' }
-                    }));
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
-                  selectedSessionFilter === '2'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                16:00 ({session2Count})
-              </button>
-            </div>
-          </div>
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-slate-600" />
+                    <span className="text-xs font-bold text-slate-700">Seans:</span>
+                    <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSessionFilter('all')}
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                          selectedSessionFilter === 'all'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Tümü ({dateScopedReports.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSessionFilter('1')}
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                          selectedSessionFilter === '1'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        11:00 ({session1Count})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSessionFilter('2')}
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                          selectedSessionFilter === '2'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        15:00 ({session2Count})
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-          <div className="bg-white p-4 px-5 rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              <BarChart3 className="w-4 h-4 text-emerald-600" />
-              <span>Reklam Kaynağı:</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-600 tabular-nums">
-              <span>
-                Meta: <strong className="text-slate-900">{adStats.meta}</strong>
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>
-                Google: <strong className="text-slate-900">{adStats.google}</strong>
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>
-                Tavsiye: <strong className="text-slate-900">{adStats.referral}</strong>
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>
-                Doğrudan: <strong className="text-slate-900">{adStats.direct}</strong>
-              </span>
-            </div>
-          </div>
-        </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 tabular-nums">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      Meta: <strong className="text-slate-900">{adStats.meta}</strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Google: <strong className="text-slate-900">{adStats.google}</strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Tavsiye: <strong className="text-slate-900">{adStats.referral}</strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Doğrudan: <strong className="text-slate-900">{adStats.direct}</strong>
+                    </span>
+                  </div>
+                  {hasActiveFilter && (
+                    <button
+                      type="button"
+                      onClick={resetAllFilters}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Sıfırla
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
-        {/* Kampüs, Sınıf Kademesi, Arama ve CSV İndirme Alanı */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-1 bg-slate-100/80 p-1.5 rounded-xl w-full md:w-auto overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => selectCampusTab('all')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer tabular-nums ${
-                  selectedCampusTab === 'all'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Tüm Şubeler ({totalScholarshipCount})
-              </button>
+          {/* 3. Sınıf Kademesi Sekmeleri (Seçili Şubenin Rengiyle Birebir Uyumlu) */}
+          {(() => {
+            const activeBranchCfg = BRANCH_CONFIGS.find((b) => b.key === selectedCampusTab);
+            const activeGradeCls = activeBranchCfg
+              ? activeBranchCfg.slotActive
+              : 'bg-slate-800 text-white border-slate-800';
+            const populatedGradeCls = activeBranchCfg
+              ? activeBranchCfg.gradeHasItems
+              : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200/70';
 
-              <button
-                type="button"
-                onClick={() => selectCampusTab('umitkoy')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer tabular-nums ${
-                  selectedCampusTab === 'umitkoy'
-                    ? 'bg-white text-emerald-700 shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Ümitköy ({umitkoyTotalCount})
-              </button>
+            return (
+              <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                <span className="text-xs font-bold text-slate-500 flex items-center gap-1 mr-1">
+                  <Filter className="w-3.5 h-3.5 text-slate-400" /> Sınıf Kademesi:
+                </span>
 
-              <button
-                type="button"
-                onClick={() => selectCampusTab('eryaman')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer tabular-nums ${
-                  selectedCampusTab === 'eryaman'
-                    ? 'bg-white text-[#004899] shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Eryaman ({eryamanTotalCount})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectCampusTab('oran')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer tabular-nums ${
-                  selectedCampusTab === 'oran'
-                    ? 'bg-white text-amber-700 shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Oran ({oranTotalCount})
-              </button>
-            </div>
-
-            <div className="relative w-full md:w-72">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Öğrenci, veli, TC veya Belge No ara..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              />
-              {searchTerm && (
                 <button
                   type="button"
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={downloadExcel}
-              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap cursor-pointer tabular-nums"
-            >
-              <Download className="w-4 h-4" />
-              Excel İndir (.xlsx) ({filteredReports.length})
-            </button>
-          </div>
-
-          {/* Sınıf Kademeleri Filter Buttons */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className="text-xs font-bold text-slate-500 flex items-center gap-1 mr-2">
-              <Filter className="w-3.5 h-3.5 text-slate-400" /> Sınıf Kademesi:
-            </span>
-
-            <button
-              type="button"
-              onClick={() => setSelectedGradeFilter('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer whitespace-nowrap shrink-0 tabular-nums ${
-                selectedGradeFilter === 'all'
-                  ? 'bg-[#004899] text-white border-[#004899]'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              Tüm Sınıflar (
-              {
-                allScholarshipReports.filter(
-                  (r) =>
-                    matchCampus(r, selectedCampusTab) &&
-                    matchDateSlot(r, selectedDateFilter) &&
-                    matchSessionSlot(r, selectedSessionFilter)
-                ).length
-              }
-              )
-            </button>
-
-            {availableGradeList.map((gradeNum) => {
-              const count = getGradeCount(gradeNum);
-              const isSelected = selectedGradeFilter === gradeNum;
-
-              return (
-                <button
-                  type="button"
-                  key={gradeNum}
-                  onClick={() => setSelectedGradeFilter(gradeNum)}
+                  onClick={() => setSelectedGradeFilter('all')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer whitespace-nowrap shrink-0 tabular-nums ${
-                    isSelected
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : count > 0
-                      ? 'bg-blue-50/80 text-blue-700 border-blue-200 hover:bg-blue-100'
-                      : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
+                    selectedGradeFilter === 'all'
+                      ? activeGradeCls
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  {gradeNum}. Sınıf ({count})
+                  Tüm Sınıflar (
+                  {
+                    allScholarshipReports.filter(
+                      (r) =>
+                        matchCampus(r, selectedCampusTab) &&
+                        matchDateSlot(r, selectedDateFilter) &&
+                        matchSessionSlot(r, selectedSessionFilter)
+                    ).length
+                  }
+                  )
                 </button>
-              );
-            })}
-          </div>
+
+                {availableGradeList.map((gradeNum) => {
+                  const count = getGradeCount(gradeNum);
+                  const isSelected = selectedGradeFilter === gradeNum;
+
+                  return (
+                    <button
+                      type="button"
+                      key={gradeNum}
+                      onClick={() => setSelectedGradeFilter(gradeNum)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer whitespace-nowrap shrink-0 tabular-nums ${
+                        isSelected
+                          ? activeGradeCls
+                          : count > 0
+                          ? populatedGradeCls
+                          : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {gradeNum}. Sınıf ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Content List */}

@@ -890,7 +890,7 @@ export const defaultScholarshipPageData = [
         label: 'Sınav Saati',
         required: true,
         type: 'select',
-        options: 'Seans 1: 10:00, Seans 2: 16:00'
+        options: 'Seans 1: 11:00, Seans 2: 15:00'
       }
     ],
     subtitle: 'Lütfen aşağıdaki bilgileri eksiksiz ve doğru bir şekilde doldurunuz.',

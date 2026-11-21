@@ -1053,9 +1053,16 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
       (inp: any) => inp.name === "exam_date" || inp.name === "examDate"
     );
     let normalizedInputs = defaultInputs.map((inp: any) => {
+      if (inp.name === "exam_session" || inp.name === "examSession") {
+        const rawOpts = String(inp.options || "");
+        const updatedOpts =
+          !rawOpts || rawOpts.includes("10:00") || rawOpts.includes("16:00")
+            ? "Seans 1: 11:00, Seans 2: 15:00"
+            : rawOpts;
+        return { ...inp, required: true, options: updatedOpts };
+      }
       if (
         inp.name === "student_tc" ||
-        inp.name === "exam_session" ||
         inp.name === "exam_date" ||
         inp.name === "examDate"
       ) {
@@ -2513,7 +2520,7 @@ const BurslulukExamFormBlock = ({
     ).slice(0, 120);
     const grade = String(formData.grade_level || formData.grade || formData.class || "Belirtilmedi").slice(0, 64);
     const campus = String(formData.campus_preference || formData.campus || formData.campus_select || "Eryaman Kampüsü").slice(0, 120);
-    const examSession = String(formData.exam_session || formData.examSession || "Seans 1: 10:00").slice(0, 64);
+    const examSession = String(formData.exam_session || formData.examSession || "Seans 1: 11:00").slice(0, 64);
 
     const publicTicketPayload = {
       candidateNo,
@@ -3170,7 +3177,7 @@ const BurslulukConfirmationBlock = ({
   } = resolveCampusDetailsFromDirectory(rawCampusSelection, contactCampuses);
 
   const examTime = parseExamSessionTime(
-    subData.examSession || subData.exam_session || "Seans 1: 10:00"
+    subData.examSession || subData.exam_session || "Seans 1: 11:00"
   );
 
   const rawSubExamDate = subData.examDate || subData.exam_date || "";

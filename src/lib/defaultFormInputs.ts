@@ -42,7 +42,7 @@ export const DEFAULT_SCHOLARSHIP_INPUTS = [
   { type: 'section_title', label: 'Sınav Tercihi', icon: 'location_on' },
   { type: 'select', name: 'campus_preference', label: 'Kampüs Seçimi', options: 'Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü', required: true, fullWidth: true },
   { type: 'select', name: 'exam_date', label: 'Sınav Tarihi', options: '9 OCAK 2027 CUMARTESİ, 10 OCAK 2027 PAZAR', required: true },
-  { type: 'select', name: 'exam_session', label: 'Sınav Saati', options: 'Seans 1: 10:00, Seans 2: 16:00', required: true },
+  { type: 'select', name: 'exam_session', label: 'Sınav Saati', options: 'Seans 1: 11:00, Seans 2: 15:00', required: true },
   { type: 'checkbox', name: 'kvkk_approval', label: 'KVKK Aydınlatma Metni\'ni okudum, kişisel verilerimin bursluluk sınavı başvuru ve bilgilendirme süreçleri kapsamında işlenmesini onaylıyorum.', required: true, fullWidth: true }
 ];
 
