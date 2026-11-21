@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { seedBaselineTrafficIfNeeded } from '../../lib/analytics';
 import { useAdminStore } from '../../store/adminStore';
+import { exportToExcelXlsx } from '../../lib/excelExport';
 import {
   Users,
   Eye,
@@ -164,21 +165,26 @@ export default function AnalyticsCenter() {
     return pagesData.filter((p) => (p.title || '').toLowerCase().includes(q) || (p.path || '').toLowerCase().includes(q));
   }, [pagesData, searchQuery]);
 
-  // Export CSV Report
+  // Export Excel Report
   const handleExportCSV = () => {
     try {
-      let csvContent = "data:text/csv;charset=utf-8,Tarih,Sayfa Goruntulenme,Tekil Ziyaretci\n";
-      filteredDailyData.forEach((row) => {
-        csvContent += `${row.dateStr},${row.views},${row.visitors}\n`;
+      exportToExcelXlsx({
+        fileName: `Trafik_Analiz_Raporu_${new Date().toISOString().split('T')[0]}.xlsx`,
+        sheetName: 'Trafik Analizi',
+        columns: [
+          { header: 'Sıra No', key: 'rowNo', type: 'number', align: 'center', minWidth: 10, maxWidth: 12 },
+          { header: 'Tarih', key: 'dateStr', align: 'center', bold: true, minWidth: 18 },
+          { header: 'Sayfa Görüntülenme', key: 'views', type: 'number', align: 'right', minWidth: 22 },
+          { header: 'Tekil Ziyaretçi', key: 'visitors', type: 'number', align: 'right', minWidth: 20 }
+        ],
+        rows: filteredDailyData.map((row, idx) => ({
+          rowNo: idx + 1,
+          dateStr: row.dateStr,
+          views: row.views,
+          visitors: row.visitors
+        }))
       });
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `trafik_analiz_raporu_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showToast("Trafik raporu CSV dosyası olarak indirildi.");
+      showToast("Trafik raporu Excel (.xlsx) dosyası olarak indirildi.");
     } catch (err) {
       showToast("Rapor dışa aktarılırken hata oluştu.");
     }
@@ -262,11 +268,11 @@ export default function AnalyticsCenter() {
             <button
               type="button"
               onClick={handleExportCSV}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm cursor-pointer notranslate"
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm cursor-pointer whitespace-nowrap shrink-0 notranslate"
               translate="no"
             >
               <Download className="w-4 h-4" />
-              <span>Raporu İndir (CSV)</span>
+              <span>Excel İndir (.xlsx)</span>
             </button>
 
             <button

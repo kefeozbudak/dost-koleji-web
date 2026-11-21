@@ -21,7 +21,8 @@ import {
   ChevronUp,
   Award,
   Building2,
-  RotateCcw
+  RotateCcw,
+  Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
@@ -30,6 +31,11 @@ import {
   formatExamDateLabel,
   normalizeSessionSlot
 } from '../../lib/scholarshipCampaign';
+import {
+  exportToExcelXlsx,
+  cleanExcelText,
+  formatPhoneForExcel
+} from '../../lib/excelExport';
 
 type BranchKey = 'umitkoy' | 'eryaman' | 'oran';
 type DateSlotFilter = 'all' | '9_ocak' | '10_ocak';
@@ -698,6 +704,137 @@ export default function ReportCenter() {
     return true;
   });
 
+  const handleExportExcel = () => {
+    if (!filteredReports || filteredReports.length === 0) return;
+
+    const branchSuffix = activeBranchKey ? `_${activeBranchKey}` : '_tum-subeler';
+    const dateSuffix =
+      filterDateSlot === '9_ocak'
+        ? '_9-Ocak-Cumartesi'
+        : filterDateSlot === '10_ocak'
+        ? '_10-Ocak-Pazar'
+        : '';
+    const sessionSuffix =
+      filterSessionSlot === '1'
+        ? '_10-00'
+        : filterSessionSlot === '2'
+        ? '_16-00'
+        : '';
+
+    if (activeTab === 'scholarship') {
+      const rows = filteredReports.map((rep: any, idx: number) => {
+        const d = rep.data || {};
+        const sender = extractSenderInfo(d);
+        return {
+          rowNo: idx + 1,
+          candidateNo: cleanExcelText(rep.candidateNo || d.candidateNo),
+          studentName: cleanExcelText(d.student_fullname || d.studentName || sender.name),
+          tc: cleanExcelText(d.student_tc || d.studentTc || d.tc),
+          grade: cleanExcelText(d.grade_level || d.studentGrade || sender.kademe),
+          school: cleanExcelText(d.current_school || d.school),
+          campus: cleanExcelText(d.campus_preference || d.campus || sender.kampus),
+          examDate: cleanExcelText(
+            (d.exam_date || d.examDate) ? formatExamDateLabel(d.exam_date || d.examDate) : sender.examDate
+          ),
+          examSession: cleanExcelText(d.exam_session || d.examSession || sender.examSession),
+          parentName: cleanExcelText(d.parent_fullname || d.parentName),
+          phone: formatPhoneForExcel(d.parent_phone || d.parentPhone || sender.phone),
+          email: cleanExcelText(d.parent_email || d.parentEmail || sender.email),
+          source: cleanExcelText(d.discovery_source || d.heardFrom),
+          notes: cleanExcelText(d.notes || sender.message),
+          createdAt: formatReportDate(rep.createdAt)
+        };
+      });
+
+      exportToExcelXlsx({
+        fileName: `Rapor_Merkezi_Bursluluk${branchSuffix}${dateSuffix}${sessionSuffix}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+        sheetName: 'Bursluluk Raporları',
+        columns: [
+          { header: 'Sıra No', key: 'rowNo', type: 'number', align: 'center', minWidth: 9, maxWidth: 11 },
+          { header: 'Belge No', key: 'candidateNo', align: 'center', bold: true, minWidth: 18 },
+          { header: 'Öğrenci Adı Soyadı', key: 'studentName', bold: true, minWidth: 24 },
+          { header: 'T.C. Kimlik No', key: 'tc', align: 'center', minWidth: 16 },
+          { header: 'Sınıf Seviyesi', key: 'grade', align: 'center', minWidth: 15 },
+          { header: 'Mevcut Okul', key: 'school', minWidth: 25 },
+          { header: 'Kampüs Tercihi', key: 'campus', minWidth: 19 },
+          { header: 'Sınav Tarihi', key: 'examDate', minWidth: 25 },
+          { header: 'Sınav Seansı', key: 'examSession', align: 'center', minWidth: 16 },
+          { header: 'Veli Adı Soyadı', key: 'parentName', minWidth: 22 },
+          { header: 'Veli Telefon', key: 'phone', align: 'center', minWidth: 18 },
+          { header: 'Veli E-Posta', key: 'email', minWidth: 25 },
+          { header: 'Nereden Duydu', key: 'source', minWidth: 22 },
+          { header: 'Notlar', key: 'notes', minWidth: 24, maxWidth: 48 },
+          { header: 'Kayıt Tarihi', key: 'createdAt', align: 'center', minWidth: 19 }
+        ],
+        rows
+      });
+      return;
+    }
+
+    const rows = filteredReports.map((rep: any, idx: number) => {
+      const d = rep.data || {};
+      const sender = extractSenderInfo(d);
+      const formTypeLabel = isScholarshipReport(rep)
+        ? 'Bursluluk Sınavı Başvurusu'
+        : rep.type === 'pre_registration_form'
+        ? 'Ön Kayıt Formu'
+        : rep.type === 'contact_form'
+        ? 'İletişim Formu'
+        : rep.type === 'quick_contact_form'
+        ? 'Hızlı İletişim Formu'
+        : rep.type === 'is_basvuru_formu' || rep.type === 'career_application'
+        ? 'İş Başvurusu'
+        : rep.type === 'newsletter'
+        ? 'E-Bülten Kaydı'
+        : d.formName || 'Veli Asistanı Formu';
+
+      const primaryName =
+        d.student_fullname ||
+        d.studentName ||
+        (d.firstName ? `${d.firstName} ${d.lastName || ''}`.trim() : '') ||
+        sender.name;
+
+      return {
+        rowNo: idx + 1,
+        formType: cleanExcelText(formTypeLabel),
+        candidateNo: cleanExcelText(rep.candidateNo || d.candidateNo),
+        primaryName: cleanExcelText(primaryName),
+        tc: cleanExcelText(d.student_tc || d.studentTc || d.tc),
+        parentName: cleanExcelText(d.parent_fullname || d.parentName),
+        phone: formatPhoneForExcel(sender.phone),
+        email: cleanExcelText(sender.email),
+        campus: cleanExcelText(sender.kampus),
+        kademe: cleanExcelText(sender.kademe),
+        examDate: cleanExcelText(sender.examDate),
+        examSession: cleanExcelText(sender.examSession),
+        message: cleanExcelText(sender.message || d.coverLetter || d.subject),
+        createdAt: formatReportDate(rep.createdAt)
+      };
+    });
+
+    exportToExcelXlsx({
+      fileName: `Rapor_Merkezi_${activeTab}${branchSuffix}${dateSuffix}${sessionSuffix}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+      sheetName: 'Rapor Merkezi',
+      columns: [
+        { header: 'Sıra No', key: 'rowNo', type: 'number', align: 'center', minWidth: 9, maxWidth: 11 },
+        { header: 'Form Türü', key: 'formType', minWidth: 22 },
+        { header: 'Belge No', key: 'candidateNo', align: 'center', minWidth: 17 },
+        { header: 'Ad Soyad / Öğrenci', key: 'primaryName', bold: true, minWidth: 24 },
+        { header: 'T.C. Kimlik No', key: 'tc', align: 'center', minWidth: 16 },
+        { header: 'Veli Adı Soyadı', key: 'parentName', minWidth: 22 },
+        { header: 'Telefon', key: 'phone', align: 'center', minWidth: 18 },
+        { header: 'E-Posta', key: 'email', minWidth: 24 },
+        { header: 'Kampüs / Şube', key: 'campus', minWidth: 18 },
+        { header: 'Kademe / Sınıf', key: 'kademe', align: 'center', minWidth: 15 },
+        { header: 'Sınav Tarihi', key: 'examDate', minWidth: 24 },
+        { header: 'Sınav Seansı', key: 'examSession', align: 'center', minWidth: 15 },
+        { header: 'Mesaj / Detay', key: 'message', minWidth: 26, maxWidth: 50 },
+        { header: 'Kayıt Tarihi', key: 'createdAt', align: 'center', minWidth: 19 }
+      ],
+      rows
+    });
+  };
+
   const handlePrint = (target: 'all' | any) => {
     const items = target === 'all' ? filteredReports : [target];
     if (!items || items.length === 0) return;
@@ -974,8 +1111,17 @@ export default function ReportCenter() {
                   {isSelectionMode ? 'Seçimi İptal Et' : 'Seç'}
                 </button>
                 <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 tabular-nums"
+                >
+                  <Download className="w-4 h-4" />
+                  Excel İndir ({filteredReports.length})
+                </button>
+                <button
+                  type="button"
                   onClick={() => handlePrint('all')}
-                  className="px-4 py-2 bg-[#004899] hover:bg-[#003875] text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer whitespace-nowrap tabular-nums"
+                  className="px-4 py-2 bg-[#004899] hover:bg-[#003875] text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 tabular-nums"
                 >
                   <Printer className="w-4 h-4" />
                   Tümünü Yazdır ({filteredReports.length})

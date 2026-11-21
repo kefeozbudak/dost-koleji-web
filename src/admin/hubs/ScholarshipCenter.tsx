@@ -45,6 +45,11 @@ import {
   resolveCampusDetailsFromDirectory,
   type ContactCampusDirectory
 } from '../../lib/scholarshipCampaign';
+import {
+  exportToExcelXlsx,
+  cleanExcelText,
+  formatPhoneForExcel
+} from '../../lib/excelExport';
 
 const PAGE_SIZE = 50;
 
@@ -878,12 +883,7 @@ export default function ScholarshipCenter() {
     }
   };
 
-  const escapeCsvCell = (val: any): string => {
-    const s = String(val ?? '').replace(/"/g, '""');
-    return `"${s}"`;
-  };
-
-  const downloadCSV = () => {
+  const downloadExcel = () => {
     const campusName = selectedCampusTab === 'all' ? 'Tum-Subeler' : selectedCampusTab;
     const datePart =
       selectedDateFilter === '9_ocak'
@@ -898,25 +898,7 @@ export default function ScholarshipCenter() {
         ? '16-00'
         : 'Tum-Seanslar';
     const gradeName = selectedGradeFilter === 'all' ? 'Tum-Siniflar' : `${selectedGradeFilter}-Sinif`;
-    const fileName = `Bursluluk_${campusName}_${datePart}_${sessionPart}_${gradeName}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-
-    const headers = [
-      'Belge No',
-      'Öğrenci Adı Soyadı',
-      'TC Kimlik',
-      'Sınıf Seviyesi',
-      'Mevcut Okul',
-      'Kampüs Tercihi',
-      'Sınav Tarihi',
-      'Sınav Seansı',
-      'Veli Adı Soyadı',
-      'Telefon',
-      'E-Posta',
-      'Nereden Duydu',
-      'Dijital Reklam / UTM',
-      'Durum',
-      'Başvuru Tarihi'
-    ];
+    const fileName = `Bursluluk_${campusName}_${datePart}_${sessionPart}_${gradeName}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
 
     const statusLabels: Record<string, string> = {
       pending: 'Beklemede',
@@ -926,55 +908,76 @@ export default function ScholarshipCenter() {
       cancelled: 'İptal Edildi'
     };
 
-    const rows = filteredReports.map((report) => {
+    const rows = filteredReports.map((report, index) => {
       const sender = extractSenderInfo(report.data);
-      const candidateNo = getCandidateNo(report);
-      const studentName =
-        report.data?.student_fullname || report.data?.studentName || sender.name || '';
-      const tc = report.data?.student_tc || report.data?.studentTc || report.data?.tc || '';
-      const grade = sender.kademe || '';
-      const school = sender.school || '';
-      const campus = sender.kampus || '';
-      const examDate = sender.examDate || '';
-      const session = sender.session || '';
-      const parentName = report.data?.parent_fullname || report.data?.parentName || '';
-      const phone = sender.phone || '';
-      const email = sender.email || '';
-      const source = sender.source || '';
-      const adChannel = getAdChannelLabel(report);
-      const statusText = statusLabels[report.status || 'pending'] || report.status || 'Beklemede';
+      const candidateNo = cleanExcelText(getCandidateNo(report));
+      const studentName = cleanExcelText(
+        report.data?.student_fullname || report.data?.studentName || sender.name
+      );
+      const tc = cleanExcelText(
+        report.data?.student_tc || report.data?.studentTc || report.data?.tc
+      );
+      const grade = cleanExcelText(sender.kademe);
+      const school = cleanExcelText(sender.school);
+      const campus = cleanExcelText(sender.kampus);
+      const examDate = cleanExcelText(sender.examDate);
+      const session = cleanExcelText(sender.session);
+      const parentName = cleanExcelText(
+        report.data?.parent_fullname || report.data?.parentName
+      );
+      const phone = formatPhoneForExcel(sender.phone);
+      const email = cleanExcelText(sender.email);
+      const source = cleanExcelText(sender.source);
+      const adChannel = cleanExcelText(getAdChannelLabel(report));
+      const statusText = cleanExcelText(
+        statusLabels[report.status || 'pending'] || report.status || 'Beklemede'
+      );
       const ms = toSafeMillis(report.createdAt);
       const date = ms ? format(new Date(ms), 'dd.MM.yyyy HH:mm') : '-';
 
-      return [
-        escapeCsvCell(candidateNo),
-        escapeCsvCell(studentName),
-        escapeCsvCell(tc),
-        escapeCsvCell(grade),
-        escapeCsvCell(school),
-        escapeCsvCell(campus),
-        escapeCsvCell(examDate),
-        escapeCsvCell(session),
-        escapeCsvCell(parentName),
-        escapeCsvCell(phone),
-        escapeCsvCell(email),
-        escapeCsvCell(source),
-        escapeCsvCell(adChannel),
-        escapeCsvCell(statusText),
-        escapeCsvCell(date)
-      ].join(',');
+      return {
+        rowNo: index + 1,
+        candidateNo,
+        studentName,
+        tc,
+        grade,
+        school,
+        campus,
+        examDate,
+        session,
+        parentName,
+        phone,
+        email,
+        source,
+        adChannel,
+        statusText,
+        date
+      };
     });
 
-    const csvContent = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    exportToExcelXlsx({
+      fileName,
+      sheetName: 'Bursluluk Başvuruları',
+      columns: [
+        { header: 'Sıra No', key: 'rowNo', type: 'number', align: 'center', minWidth: 9, maxWidth: 11 },
+        { header: 'Belge No', key: 'candidateNo', align: 'center', bold: true, minWidth: 18 },
+        { header: 'Öğrenci Adı Soyadı', key: 'studentName', bold: true, minWidth: 24 },
+        { header: 'T.C. Kimlik No', key: 'tc', align: 'center', minWidth: 16 },
+        { header: 'Sınıf Seviyesi', key: 'grade', align: 'center', minWidth: 15 },
+        { header: 'Mevcut Okul', key: 'school', minWidth: 26 },
+        { header: 'Kampüs Tercihi', key: 'campus', minWidth: 19 },
+        { header: 'Sınav Tarihi', key: 'examDate', minWidth: 25 },
+        { header: 'Sınav Seansı', key: 'session', align: 'center', minWidth: 16 },
+        { header: 'Veli Adı Soyadı', key: 'parentName', minWidth: 22 },
+        { header: 'Veli Telefon', key: 'phone', align: 'center', minWidth: 18 },
+        { header: 'Veli E-Posta', key: 'email', minWidth: 25 },
+        { header: 'Nereden Duydu', key: 'source', minWidth: 22 },
+        { header: 'Dijital Reklam / UTM', key: 'adChannel', minWidth: 22 },
+        { header: 'Durum', key: 'statusText', align: 'center', minWidth: 14 },
+        { header: 'Başvuru Tarihi', key: 'date', align: 'center', minWidth: 19 }
+      ],
+      rows
+    });
   };
 
   const hasActiveFilter =
@@ -1729,11 +1732,11 @@ export default function ScholarshipCenter() {
             </div>
             <button
               type="button"
-              onClick={downloadCSV}
+              onClick={downloadExcel}
               className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap cursor-pointer tabular-nums"
             >
               <Download className="w-4 h-4" />
-              Excel / CSV İndir ({filteredReports.length})
+              Excel İndir (.xlsx) ({filteredReports.length})
             </button>
           </div>
 

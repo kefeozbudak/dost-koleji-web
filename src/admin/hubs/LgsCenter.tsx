@@ -28,6 +28,11 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
+import {
+  exportToExcelXlsx,
+  cleanExcelText,
+  formatPhoneForExcel
+} from "../../lib/excelExport";
 
 const LgsReportView = ({ data }: { data: any }) => {
   return (
@@ -190,60 +195,55 @@ export default function LgsCenter() {
   };
 
   const exportToCSV = () => {
-    const headers = [
-      "Tarih",
-      "Öğrenci Adı",
-      "Veli Adı",
-      "Telefon",
-      "Okul",
-      "Toplam Puan",
-      "Yüzdelik Dilim",
-      "Sayısal Net",
-      "Sözel Net",
-      "Toplam Net",
-      "Türkçe Net",
-      "Matematik Net",
-      "Fen Net",
-      "İnkılap Net",
-      "Din Net",
-      "İngilizce Net",
-    ];
+    const numOrDash = (val: any): number | string =>
+      typeof val === "number" && Number.isFinite(val) ? Number(val.toFixed(2)) : "-";
 
-    const csvData = filteredReports.map((report) => [
-      report.createdAt
+    const rows = filteredReports.map((report, idx) => ({
+      rowNo: idx + 1,
+      date: report.createdAt
         ? format(report.createdAt?.toDate?.() || new Date(report.createdAt), "dd.MM.yyyy HH:mm")
         : "-",
-      report.studentName || "-",
-      report.parentName || "-",
-      report.phone || "-",
-      report.school || "-",
-      report.results?.totalScore?.toFixed(2) || "-",
-      report.results?.percentile || "-",
-      report.results?.sayisalNet?.toFixed(2) || "-",
-      report.results?.sozelNet?.toFixed(2) || "-",
-      report.results?.totalNet?.toFixed(2) || "-",
-      report.subjects?.turkce?.net?.toFixed(2) || "-",
-      report.subjects?.matematik?.net?.toFixed(2) || "-",
-      report.subjects?.fen?.net?.toFixed(2) || "-",
-      report.subjects?.tarih?.net?.toFixed(2) || "-",
-      report.subjects?.din?.net?.toFixed(2) || "-",
-      report.subjects?.ingilizce?.net?.toFixed(2) || "-",
-    ]);
+      studentName: cleanExcelText(report.studentName),
+      parentName: cleanExcelText(report.parentName),
+      phone: formatPhoneForExcel(report.phone),
+      school: cleanExcelText(report.school),
+      totalScore: numOrDash(report.results?.totalScore),
+      percentile: cleanExcelText(report.results?.percentile),
+      sayisalNet: numOrDash(report.results?.sayisalNet),
+      sozelNet: numOrDash(report.results?.sozelNet),
+      totalNet: numOrDash(report.results?.totalNet),
+      turkceNet: numOrDash(report.subjects?.turkce?.net),
+      matematikNet: numOrDash(report.subjects?.matematik?.net),
+      fenNet: numOrDash(report.subjects?.fen?.net),
+      tarihNet: numOrDash(report.subjects?.tarih?.net),
+      dinNet: numOrDash(report.subjects?.din?.net),
+      ingilizceNet: numOrDash(report.subjects?.ingilizce?.net),
+    }));
 
-    const csvContent =
-      "data:text/csv;charset=utf-8,﻿" +
-      [headers, ...csvData].map((e) => e.join(",")).join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `lgs_sonuclari_${format(new Date(), "yyyy-MM-dd")}.csv`,
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToExcelXlsx({
+      fileName: `LGS_Sonuclari_${format(new Date(), "yyyy-MM-dd")}.xlsx`,
+      sheetName: "LGS Sonuçları",
+      columns: [
+        { header: "Sıra No", key: "rowNo", type: "number", align: "center", minWidth: 9, maxWidth: 11 },
+        { header: "Tarih", key: "date", align: "center", minWidth: 18 },
+        { header: "Öğrenci Adı Soyadı", key: "studentName", bold: true, minWidth: 24 },
+        { header: "Veli Adı Soyadı", key: "parentName", minWidth: 22 },
+        { header: "Telefon", key: "phone", align: "center", minWidth: 18 },
+        { header: "Mevcut Okul", key: "school", minWidth: 24 },
+        { header: "Toplam Puan", key: "totalScore", type: "number", align: "right", minWidth: 14 },
+        { header: "Yüzdelik Dilim", key: "percentile", align: "center", minWidth: 15 },
+        { header: "Sayısal Net", key: "sayisalNet", type: "number", align: "right", minWidth: 13 },
+        { header: "Sözel Net", key: "sozelNet", type: "number", align: "right", minWidth: 13 },
+        { header: "Toplam Net", key: "totalNet", type: "number", align: "right", minWidth: 13 },
+        { header: "Türkçe Net", key: "turkceNet", type: "number", align: "right", minWidth: 13 },
+        { header: "Matematik Net", key: "matematikNet", type: "number", align: "right", minWidth: 15 },
+        { header: "Fen Net", key: "fenNet", type: "number", align: "right", minWidth: 12 },
+        { header: "İnkılap Net", key: "tarihNet", type: "number", align: "right", minWidth: 13 },
+        { header: "Din Net", key: "dinNet", type: "number", align: "right", minWidth: 12 },
+        { header: "İngilizce Net", key: "ingilizceNet", type: "number", align: "right", minWidth: 14 },
+      ],
+      rows,
+    });
   };
 
   const handlePrint = () => {
