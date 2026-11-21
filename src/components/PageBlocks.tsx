@@ -1158,6 +1158,76 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
     return () => window.removeEventListener("dost:bootstrap-ready", syncGeneral);
   }, []);
 
+  const isScholarshipFormType =
+    type === "bursluluk_exam_form" ||
+    type === "bursluluk_sinavi" ||
+    type === "scholarship_form";
+
+  const isScholarshipGradeInput = (inp: any) =>
+    Boolean(
+      isScholarshipFormType &&
+        inp?.type === "select" &&
+        (inp.name === "grade_level" ||
+          inp.name === "grade" ||
+          inp.name === "studentClass" ||
+          inp.name === "studentGrade" ||
+          String(inp.label || "").toLocaleLowerCase("tr-TR").includes("sınıf"))
+    );
+
+  const isScholarshipCampusInput = (inp: any) =>
+    Boolean(
+      isScholarshipFormType &&
+        inp?.type === "select" &&
+        (inp.name === "campus_preference" ||
+          inp.name === "campus" ||
+          inp.name === "campus_select" ||
+          inp.name === "kampus" ||
+          String(inp.label || "").toLocaleLowerCase("tr-TR").includes("kampüs") ||
+          String(inp.label || "").toLocaleLowerCase("tr-TR").includes("şube"))
+    );
+
+  const isEryamanOnlyScholarshipGrade = (gradeVal: any) =>
+    /(^|\D)(8|9|10|11)(\s*\.|\s+sınıf|$)/i.test(String(gradeVal || "").trim());
+
+  const resolveEryamanOptionValue = (campusInp?: any) => {
+    const rawOpts = String(campusInp?.options || "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+    return (
+      rawOpts.find((o) => o.toLocaleLowerCase("tr-TR").includes("eryaman")) ||
+      "Eryaman Kampüsü"
+    );
+  };
+
+  const getSelectedScholarshipGrade = (dataObj: any) => {
+    const gradeInp = defaultInputs.find(isScholarshipGradeInput);
+    if (gradeInp && dataObj?.[gradeInp.name] !== undefined) {
+      return String(dataObj[gradeInp.name] || "");
+    }
+    return String(
+      dataObj?.grade_level ||
+        dataObj?.grade ||
+        dataObj?.studentClass ||
+        dataObj?.studentGrade ||
+        ""
+    );
+  };
+
+  const getSelectedScholarshipCampus = (dataObj: any) => {
+    const campusInp = defaultInputs.find(isScholarshipCampusInput);
+    if (campusInp && dataObj?.[campusInp.name] !== undefined) {
+      return String(dataObj[campusInp.name] || "");
+    }
+    return String(
+      dataObj?.campus_preference ||
+        dataObj?.campus ||
+        dataObj?.campus_select ||
+        dataObj?.kampus ||
+        ""
+    );
+  };
+
   // set initial states while preserving any saved draft values
   useEffect(() => {
     setFormData((prev: any) => {
@@ -1181,6 +1251,19 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
         ) {
           initData["club"] = "";
           changed = true;
+        }
+        if (
+          isScholarshipFormType &&
+          isEryamanOnlyScholarshipGrade(getSelectedScholarshipGrade(initData))
+        ) {
+          const campusInputs = inputsToProcess.filter(isScholarshipCampusInput);
+          campusInputs.forEach((cInp: any) => {
+            const eryamanVal = resolveEryamanOptionValue(cInp);
+            if (initData[cInp.name] !== eryamanVal) {
+              initData[cInp.name] = eryamanVal;
+              changed = true;
+            }
+          });
         }
       }
       return changed ? initData : prev;
@@ -1217,22 +1300,69 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
           newData.campus = "Eryaman Kampüsü";
         }
       }
-      // Bursluluk Sınavı: Ümitköy ve Oran kampüslerinde 8, 9, 10, 11. sınıflar sınava alınmaz (sadece 4, 5, 6, 7)
-      // Ayrıca seçilen kampüste kontenjanı dolmuş bir seans seçiliyse otomatik sıfırla
+
+      const changedInput = defaultInputs.find((inp: any) => inp.name === name);
+
+      // Bursluluk Sınavı: 8, 9, 10 ve 11. sınıf seçildiğinde kampüsü otomatik Eryaman Kampüsü yap
       if (
-        (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") &&
-        (name === "campus_preference" || name === "campus" || name === "campus_select")
+        isScholarshipFormType &&
+        (isScholarshipGradeInput(changedInput) ||
+          name === "grade_level" ||
+          name === "grade" ||
+          name === "studentClass" ||
+          name === "studentGrade")
       ) {
-        const cLow = String(finalValue || "").toLowerCase();
-        if (cLow.includes("ümitköy") || cLow.includes("umitkoy") || cLow.includes("oran")) {
-          ["grade_level", "grade", "studentClass"].forEach((gKey) => {
-            if (newData[gKey] && /(^|\s)(8|9|10|11)\./.test(String(newData[gKey]))) {
-              newData[gKey] = "";
+        if (isEryamanOnlyScholarshipGrade(finalValue)) {
+          const campusInputs = defaultInputs.filter(isScholarshipCampusInput);
+          let targetEryamanVal = "Eryaman Kampüsü";
+          if (campusInputs.length > 0) {
+            campusInputs.forEach((cInp: any) => {
+              targetEryamanVal = resolveEryamanOptionValue(cInp);
+              newData[cInp.name] = targetEryamanVal;
+            });
+          } else {
+            newData.campus_preference = targetEryamanVal;
+          }
+
+          ["exam_date", "examDate"].forEach((dKey) => {
+            if (
+              newData[dKey] &&
+              isCampusDateFullyClosed(generalSettingsState, targetEryamanVal, newData[dKey])
+            ) {
+              newData[dKey] = "";
+            }
+          });
+          const activeDate = newData.exam_date || newData.examDate || "";
+          ["exam_session", "examSession"].forEach((sKey) => {
+            if (
+              newData[sKey] &&
+              isCampusSessionClosed(generalSettingsState, targetEryamanVal, newData[sKey], activeDate)
+            ) {
+              newData[sKey] = "";
             }
           });
         }
+      }
+
+      // Bursluluk Sınavı: Kampüs değiştiğinde kontenjanı dolmuş tarih/seansı sıfırla (8-11. sınıflarda Eryaman kilidini koru)
+      if (
+        isScholarshipFormType &&
+        (isScholarshipCampusInput(changedInput) ||
+          name === "campus_preference" ||
+          name === "campus" ||
+          name === "campus_select" ||
+          name === "kampus")
+      ) {
+        let effectiveCampus = finalValue;
+        if (isEryamanOnlyScholarshipGrade(getSelectedScholarshipGrade(newData))) {
+          effectiveCampus = resolveEryamanOptionValue(changedInput);
+          newData[name] = effectiveCampus;
+        }
         ["exam_date", "examDate"].forEach((dKey) => {
-          if (newData[dKey] && isCampusDateFullyClosed(generalSettingsState, finalValue, newData[dKey])) {
+          if (
+            newData[dKey] &&
+            isCampusDateFullyClosed(generalSettingsState, effectiveCampus, newData[dKey])
+          ) {
             newData[dKey] = "";
           }
         });
@@ -1240,7 +1370,7 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
         ["exam_session", "examSession"].forEach((sKey) => {
           if (
             newData[sKey] &&
-            isCampusSessionClosed(generalSettingsState, finalValue, newData[sKey], activeDate)
+            isCampusSessionClosed(generalSettingsState, effectiveCampus, newData[sKey], activeDate)
           ) {
             newData[sKey] = "";
           }
@@ -1248,11 +1378,10 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
       }
 
       if (
-        (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") &&
+        isScholarshipFormType &&
         (name === "exam_date" || name === "examDate")
       ) {
-        const activeCampus =
-          newData.campus_preference || newData.campus || newData.campus_select || "";
+        const activeCampus = getSelectedScholarshipCampus(newData);
         ["exam_session", "examSession"].forEach((sKey) => {
           if (
             activeCampus &&
@@ -1343,10 +1472,21 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
         }
       }
 
-      if (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") {
-        const chosenCampus = formData.campus_preference || formData.campus || formData.campus_select || "";
-        const chosenDate = formData.exam_date || formData.examDate || "";
-        const chosenSession = formData.exam_session || formData.examSession || "";
+      if (isScholarshipFormType) {
+        if (isEryamanOnlyScholarshipGrade(getSelectedScholarshipGrade(processedData))) {
+          const campusInputs = defaultInputs.filter(isScholarshipCampusInput);
+          if (campusInputs.length > 0) {
+            campusInputs.forEach((cInp: any) => {
+              processedData[cInp.name] = resolveEryamanOptionValue(cInp);
+            });
+          } else {
+            processedData.campus_preference = "Eryaman Kampüsü";
+          }
+        }
+
+        const chosenCampus = getSelectedScholarshipCampus(processedData);
+        const chosenDate = processedData.exam_date || processedData.examDate || "";
+        const chosenSession = processedData.exam_session || processedData.examSession || "";
         if (!chosenDate) {
           setFormError("Lütfen sınava katılmak istediğiniz Sınav Tarihini seçiniz.");
           setSubmitting(false);
@@ -1707,49 +1847,25 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                     opts.push("Diğer / Genel Başvuru");
                   }
 
-                  // Bursluluk Sınavı Kampüs-Sınıf Filtresi (Ümitköy ve Oran kampüslerinde sadece 4, 5, 6, 7. sınıflar açıktır)
-                  const isScholarshipGradeField =
-                    (type === "bursluluk_exam_form" ||
-                      type === "bursluluk_sinavi" ||
-                      type === "scholarship_form") &&
-                    (input.name === "grade" ||
-                      input.name === "studentClass" ||
-                      input.name === "grade_level");
-                  let isRestrictedMiddleSchoolCampus = false;
-
-                  if (isScholarshipGradeField) {
-                    const selectedCampus = String(
-                      formData.campus ||
-                        formData.campus_preference ||
-                        formData.campus_select ||
-                        "",
-                    ).toLowerCase();
-                    if (
-                      selectedCampus.includes("ümitköy") ||
-                      selectedCampus.includes("umitkoy") ||
-                      selectedCampus.includes("oran")
-                    ) {
-                      isRestrictedMiddleSchoolCampus = true;
-                      opts = opts.filter(
-                        (opt: string) => !/(^|\s)(8|9|10|11)\./.test(opt),
-                      );
-                    }
-                  }
+                  // Bursluluk Sınavı Sınıf -> Kampüs Kuralı: 8, 9, 10 ve 11. sınıflar otomatik Eryaman Kampüsü seçilir ve kilitlenir
+                  const isScholarshipGradeField = isScholarshipGradeInput(input);
+                  const isThisScholarshipCampusField = isScholarshipCampusInput(input);
+                  const selectedScholarshipGrade = getSelectedScholarshipGrade(formData);
+                  const isScholarshipEryamanLockedGrade =
+                    isScholarshipFormType &&
+                    isEryamanOnlyScholarshipGrade(selectedScholarshipGrade);
 
                   const isScholarshipDateField =
-                    (type === "bursluluk_exam_form" ||
-                      type === "bursluluk_sinavi" ||
-                      type === "scholarship_form") &&
+                    isScholarshipFormType &&
                     (input.name === "exam_date" || input.name === "examDate");
 
                   const isScholarshipSessionField =
-                    (type === "bursluluk_exam_form" ||
-                      type === "bursluluk_sinavi" ||
-                      type === "scholarship_form") &&
+                    isScholarshipFormType &&
                     (input.name === "exam_session" || input.name === "examSession");
 
-                  const currentCampusSelection =
-                    formData.campus_preference || formData.campus || formData.campus_select || "";
+                  const currentCampusSelection = isScholarshipEryamanLockedGrade
+                    ? resolveEryamanOptionValue(defaultInputs.find(isScholarshipCampusInput))
+                    : getSelectedScholarshipCampus(formData);
                   const currentExamDateSelection =
                     formData.exam_date || formData.examDate || "";
 
@@ -1766,9 +1882,21 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                       )
                     );
 
-                  const isHighSchoolSelected = type === "pre_registration_form" && typeof formData.grade === "string" && (formData.grade.includes("Anadolu Lisesi") || formData.grade.includes("Fen Lisesi"));
-                  const isCampusField = input.name === "campus";
-                  const shouldDisableCampus = isHighSchoolSelected && isCampusField;
+                  const isHighSchoolSelected =
+                    type === "pre_registration_form" &&
+                    typeof formData.grade === "string" &&
+                    (formData.grade.includes("Anadolu Lisesi") ||
+                      formData.grade.includes("Fen Lisesi"));
+                  const shouldDisablePreRegCampus =
+                    isHighSchoolSelected && input.name === "campus";
+                  const shouldLockScholarshipCampus =
+                    isThisScholarshipCampusField && isScholarshipEryamanLockedGrade;
+                  const shouldDisableCampus =
+                    shouldDisablePreRegCampus || shouldLockScholarshipCampus;
+
+                  const resolvedSelectValue = shouldLockScholarshipCampus
+                    ? resolveEryamanOptionValue(input)
+                    : formData[input.name] || "";
 
                   return (
                     <div
@@ -1791,14 +1919,14 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                       <select
                         required={input.required}
                         disabled={shouldDisableCampus}
-                        value={formData[input.name] || ""}
+                        value={resolvedSelectValue}
                         onChange={(e) =>
                           handleChange(input.name, e.target.value)
                         }
                         className={
                           isStyledForm
-                            ? `w-full px-4 py-3 rounded-lg border border-border-subtle bg-surface-background text-text-main font-body-md focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%20%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldDisableCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
-                            : `w-full px-4 py-3 bg-surface-container-lowest border border-border-subtle rounded-lg font-body-md text-on-surface focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%20%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldDisableCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
+                            ? `w-full px-4 py-3 rounded-lg border border-border-subtle bg-surface-background text-text-main font-body-md focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%20%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldLockScholarshipCampus ? '!bg-blue-50/60 !border-blue-200 !text-[#002147] font-semibold cursor-not-allowed' : shouldDisablePreRegCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
+                            : `w-full px-4 py-3 bg-surface-container-lowest border border-border-subtle rounded-lg font-body-md text-on-surface focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%20%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat ${shouldLockScholarshipCampus ? '!bg-blue-50/60 !border-blue-200 !text-[#002147] font-semibold cursor-not-allowed' : shouldDisablePreRegCampus ? 'opacity-60 cursor-not-allowed !bg-slate-100' : ''}`
                         }
                       >
                         <option disabled value="">
@@ -1830,11 +1958,29 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                           );
                         })}
                       </select>
-                      {shouldDisableCampus && (
-                        <p className="text-xs text-blue-600 mt-1">Lise seviyesi eğitimimiz sadece Eryaman kampüsümüzde mevcuttur.</p>
+                      {shouldDisablePreRegCampus && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          Lise seviyesi eğitimimiz sadece Eryaman kampüsümüzde mevcuttur.
+                        </p>
                       )}
-                      {isRestrictedMiddleSchoolCampus && (
-                        <p className="text-xs text-blue-600 mt-1">Ümitköy ve Oran kampüslerimizde bursluluk sınavı 4, 5, 6 ve 7. sınıf kademelerinde uygulanmaktadır.</p>
+                      {isScholarshipGradeField && isScholarshipEryamanLockedGrade && (
+                        <p className="text-xs font-medium text-[#004899] pt-1">
+                          {selectedScholarshipGrade} düzeyi sınavlarımız yalnızca Eryaman Kampüsümüzde uygulandığından kampüs seçiminiz otomatik olarak güncellenmiştir.
+                        </p>
+                      )}
+                      {shouldLockScholarshipCampus && (
+                        <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50/80 px-3.5 py-2.5 text-xs leading-relaxed text-[#002147]">
+                          <span
+                            className="material-symbols-outlined text-base text-[#004899] shrink-0 mt-0.5"
+                            translate="no"
+                            aria-hidden="true"
+                          >
+                            info
+                          </span>
+                          <span>
+                            <strong>Bilgilendirme:</strong> Seçtiğiniz sınıf seviyesindeki (<strong>8. Sınıf, 9. Sınıf, 10. Sınıf veya 11. Sınıf</strong>) öğrencilerimiz yalnızca <strong>Eryaman Kampüsümüzde</strong> bursluluk sınavına katılabilmektedir. Bu nedenle kampüs tercihiniz otomatik olarak <strong>Eryaman Kampüsü</strong> seçilmiştir.
+                          </span>
+                        </div>
                       )}
                       {allSessionsClosedForCampus && (
                         <p className="text-xs font-semibold text-amber-700 mt-1">
