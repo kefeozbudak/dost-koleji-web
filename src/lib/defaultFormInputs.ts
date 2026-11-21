@@ -40,7 +40,8 @@ export const DEFAULT_SCHOLARSHIP_INPUTS = [
   { type: 'email', name: 'parent_email', label: 'E-posta Adresi', placeholder: 'ornek@mail.com', required: false, fullWidth: true },
   { type: 'select', name: 'discovery_source', label: 'Bizi nereden buldunuz?', options: 'Sosyal Medya, İnternet Reklamları, Tavsiye, Okul Afişleri/Bilboardlar, Diğer', required: false, fullWidth: true },
   { type: 'section_title', label: 'Sınav Tercihi', icon: 'location_on' },
-  { type: 'select', name: 'campus_preference', label: 'Kampüs Seçimi', options: 'Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü', required: true },
+  { type: 'select', name: 'campus_preference', label: 'Kampüs Seçimi', options: 'Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü', required: true, fullWidth: true },
+  { type: 'select', name: 'exam_date', label: 'Sınav Tarihi', options: '9 OCAK 2027 CUMARTESİ, 10 OCAK 2027 PAZAR', required: true },
   { type: 'select', name: 'exam_session', label: 'Sınav Saati', options: 'Seans 1: 10:00, Seans 2: 16:00', required: true },
   { type: 'checkbox', name: 'kvkk_approval', label: 'KVKK Aydınlatma Metni\'ni okudum, kişisel verilerimin bursluluk sınavı başvuru ve bilgilendirme süreçleri kapsamında işlenmesini onaylıyorum.', required: true, fullWidth: true }
 ];

@@ -782,7 +782,7 @@ export const defaultScholarshipPageData = [
     badge: '2026-2027 EĞİTİM YILI',
     stats: [
       {
-        value: '5 Ocak 2027',
+        value: '9 - 10 Ocak 2027',
         label: 'Sınav Tarihi'
       },
       {
@@ -874,8 +874,16 @@ export const defaultScholarshipPageData = [
         type: 'select',
         options: 'Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü',
         required: true,
+        fullWidth: true,
         name: 'campus_preference',
         label: 'Kampüs Seçimi'
+      },
+      {
+        name: 'exam_date',
+        label: 'Sınav Tarihi',
+        required: true,
+        type: 'select',
+        options: '9 OCAK 2027 CUMARTESİ, 10 OCAK 2027 PAZAR'
       },
       {
         name: 'exam_session',
@@ -948,7 +956,7 @@ export const defaultScholarshipConfirmationPageData = [
     successIcon: 'check_circle',
     documentTitle: 'Bursluluk Sınavı Giriş Belgesi',
     documentLogo: '/dost-logo-png.png',
-    examDate: '5 Ocak 2027',
+    examDate: '9 OCAK 2027 CUMARTESİ',
     buttons: [
       {
         icon: 'download',
@@ -974,9 +982,9 @@ export const defaultScholarshipConfirmationPageData = [
       'Optik formda kodlamaları kurşun kalemle yapınız.'
     ],
     campusAddresses: {
-      oran: 'Oran Mh. Rafet Canıtez Cd. No:8 Çankaya / Ankara',
-      eryaman: 'Şehit Osman Avcı Mh. Malazgirt 1071 Cad. No:20 Eryaman / Etimesgut / Ankara',
-      umitkoy: 'Ümitköy Mh. 2432. Cd. No:18 Çankaya / Ankara'
+      oran: 'Akpınar Mah. Dikmen Cad. No: 592 Çankaya/Ankara',
+      eryaman: 'Şehit Osman Avcı Mah. 2651. Cad. No:4F Eryaman/Ankara',
+      umitkoy: 'Ümit Mah. Meksika Cad. 2434. Sok. No:3 Ümitköy/Ankara'
     },
     titlePart1Color: '#002147',
     subtitle: 'Sınav giriş belgeniz aşağıda oluşturulmuştur. Lütfen sınav günü yanınızda bulundurunuz. Belgenizi indirip yazdırarak sınava getirmeyi unutmayınız.',

@@ -28,9 +28,14 @@ import {
   clearFormDraft,
   getCampaignAttribution,
   isCampusSessionClosed,
+  isCampusDateFullyClosed,
+  formatExamDateLabel,
   downloadExamCalendarIcs,
   buildWhatsAppTicketUrl,
-  buildCampusMapsUrl,
+  getCachedContactCampuses,
+  loadContactCampusesFromFirestore,
+  resolveCampusDetailsFromDirectory,
+  type ContactCampusDirectory,
 } from "../lib/scholarshipCampaign";
 import { getHeroOverlayClass, getHeroOverlayStyle,  getStyle, getTitleStyle, getSubtitleStyle, getDescStyle, getBadgeStyle, getButtonStyle, getItemContainerStyle, getItemTitleStyle, getItemDescStyle, getItemButtonStyle, getTitlePart1Style, getTitlePart2Style, getValidText, getValidStyle, getIndividualButtonStyle, fallbackImages, getImageStyle, getCardStyle, getCardClass, getCardTitleStyle, getCardDescStyle, extractAlignClass, removeAlignStyles, getIconStyle, getCardButtonStyle  } from "../lib/styleUtils";
 import { ManagementHeroBlock, ManagementRectorBlock, ManagementTeamGridBlock } from './ManagementBlocks';
@@ -1042,14 +1047,49 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                 ? DEFAULT_QUICK_CONTACT_INPUTS
                 : DEFAULT_PRE_REGISTRATION_INPUTS;
 
-  // Ensure scholarship form always enforces required TC, exam session, and KVKK consent even if CMS inputs are older
+  // Ensure scholarship form always includes Sınav Tarihi (9-10 Ocak 2027) & required TC/session even if CMS inputs in Firestore are older
   if (type === "bursluluk_exam_form") {
-    defaultInputs = defaultInputs.map((inp: any) => {
-      if (inp.name === "student_tc" || inp.name === "exam_session") {
+    const hasExamDateInput = defaultInputs.some(
+      (inp: any) => inp.name === "exam_date" || inp.name === "examDate"
+    );
+    let normalizedInputs = defaultInputs.map((inp: any) => {
+      if (
+        inp.name === "student_tc" ||
+        inp.name === "exam_session" ||
+        inp.name === "exam_date" ||
+        inp.name === "examDate"
+      ) {
         return { ...inp, required: true };
+      }
+      if (
+        inp.name === "campus_preference" ||
+        inp.name === "campus" ||
+        inp.name === "campus_select"
+      ) {
+        return { ...inp, required: true, fullWidth: true };
       }
       return inp;
     });
+
+    if (!hasExamDateInput) {
+      const examDateField = {
+        type: "select",
+        name: "exam_date",
+        label: "Sınav Tarihi",
+        options: "9 OCAK 2027 CUMARTESİ, 10 OCAK 2027 PAZAR",
+        required: true,
+      };
+      const sessionIdx = normalizedInputs.findIndex(
+        (inp: any) => inp.name === "exam_session" || inp.name === "examSession"
+      );
+      if (sessionIdx !== -1) {
+        normalizedInputs.splice(sessionIdx, 0, examDateField);
+      } else {
+        normalizedInputs = [...normalizedInputs, examDateField];
+      }
+    }
+
+    defaultInputs = normalizedInputs;
   }
 
   const hasKvkk = defaultInputs.some((i: any) => i.type === "checkbox" && (i.name === "kvkk_approval" || i.name === "kvkkConsent" || i.name === "kvkk" || (i.label && i.label.includes("KVKK"))));
@@ -1184,8 +1224,34 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
             }
           });
         }
+        ["exam_date", "examDate"].forEach((dKey) => {
+          if (newData[dKey] && isCampusDateFullyClosed(generalSettingsState, finalValue, newData[dKey])) {
+            newData[dKey] = "";
+          }
+        });
+        const activeDate = newData.exam_date || newData.examDate || "";
         ["exam_session", "examSession"].forEach((sKey) => {
-          if (newData[sKey] && isCampusSessionClosed(generalSettingsState, finalValue, newData[sKey])) {
+          if (
+            newData[sKey] &&
+            isCampusSessionClosed(generalSettingsState, finalValue, newData[sKey], activeDate)
+          ) {
+            newData[sKey] = "";
+          }
+        });
+      }
+
+      if (
+        (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") &&
+        (name === "exam_date" || name === "examDate")
+      ) {
+        const activeCampus =
+          newData.campus_preference || newData.campus || newData.campus_select || "";
+        ["exam_session", "examSession"].forEach((sKey) => {
+          if (
+            activeCampus &&
+            newData[sKey] &&
+            isCampusSessionClosed(generalSettingsState, activeCampus, newData[sKey], finalValue)
+          ) {
             newData[sKey] = "";
           }
         });
@@ -1272,9 +1338,19 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
 
       if (type === "bursluluk_exam_form" || type === "bursluluk_sinavi" || type === "scholarship_form") {
         const chosenCampus = formData.campus_preference || formData.campus || formData.campus_select || "";
+        const chosenDate = formData.exam_date || formData.examDate || "";
         const chosenSession = formData.exam_session || formData.examSession || "";
-        if (chosenCampus && chosenSession && isCampusSessionClosed(generalSettingsState, chosenCampus, chosenSession)) {
-          setFormError("Seçtiğiniz sınav seansının kontenjanı dolmuştur. Lütfen diğer seansı veya alternatif kampüsü seçiniz.");
+        if (!chosenDate) {
+          setFormError("Lütfen sınava katılmak istediğiniz Sınav Tarihini seçiniz.");
+          setSubmitting(false);
+          return;
+        }
+        if (
+          chosenCampus &&
+          chosenSession &&
+          isCampusSessionClosed(generalSettingsState, chosenCampus, chosenSession, chosenDate)
+        ) {
+          setFormError("Seçtiğiniz sınav tarihi ve seansının kontenjanı dolmuştur. Lütfen diğer günü, seansı veya alternatif kampüsü seçiniz.");
           setSubmitting(false);
           return;
         }
@@ -1653,6 +1729,12 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                     }
                   }
 
+                  const isScholarshipDateField =
+                    (type === "bursluluk_exam_form" ||
+                      type === "bursluluk_sinavi" ||
+                      type === "scholarship_form") &&
+                    (input.name === "exam_date" || input.name === "examDate");
+
                   const isScholarshipSessionField =
                     (type === "bursluluk_exam_form" ||
                       type === "bursluluk_sinavi" ||
@@ -1661,13 +1743,20 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
 
                   const currentCampusSelection =
                     formData.campus_preference || formData.campus || formData.campus_select || "";
+                  const currentExamDateSelection =
+                    formData.exam_date || formData.examDate || "";
 
                   const allSessionsClosedForCampus =
                     isScholarshipSessionField &&
                     Boolean(currentCampusSelection) &&
                     opts.length > 0 &&
                     opts.every((opt: string) =>
-                      isCampusSessionClosed(generalSettingsState, currentCampusSelection, opt)
+                      isCampusSessionClosed(
+                        generalSettingsState,
+                        currentCampusSelection,
+                        opt,
+                        currentExamDateSelection
+                      )
                     );
 
                   const isHighSchoolSelected = type === "pre_registration_form" && typeof formData.grade === "string" && (formData.grade.includes("Anadolu Lisesi") || formData.grade.includes("Fen Lisesi"));
@@ -1709,17 +1798,27 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                           {input.placeholder || "Seçiniz"}
                         </option>
                         {opts.map((opt: string, optIdx: number) => {
+                          const dateFull =
+                            isScholarshipDateField &&
+                            Boolean(currentCampusSelection) &&
+                            isCampusDateFullyClosed(generalSettingsState, currentCampusSelection, opt);
                           const sessionFull =
                             isScholarshipSessionField &&
                             Boolean(currentCampusSelection) &&
-                            isCampusSessionClosed(generalSettingsState, currentCampusSelection, opt);
+                            isCampusSessionClosed(
+                              generalSettingsState,
+                              currentCampusSelection,
+                              opt,
+                              currentExamDateSelection
+                            );
+                          const optClosed = dateFull || sessionFull;
                           return (
                             <option
                               key={`${inputKey}_opt_${optIdx}`}
                               value={opt}
-                              disabled={sessionFull}
+                              disabled={optClosed}
                             >
-                              {sessionFull ? `${opt} (Kontenjan Doldu)` : opt}
+                              {optClosed ? `${opt} (Kontenjan Doldu)` : opt}
                             </option>
                           );
                         })}
@@ -1732,7 +1831,7 @@ const DynamicFormBuilder = ({ block, type, submitForm, getIconStyle }: any) => {
                       )}
                       {allSessionsClosedForCampus && (
                         <p className="text-xs font-semibold text-amber-700 mt-1">
-                          Seçilen kampüsümüzde sınav seans kontenjanları dolmuştur. Dilerseniz diğer kampüslerimizi seçebilirsiniz.
+                          Seçilen tarih ve kampüste sınav seans kontenjanları dolmuştur. Lütfen diğer sınav gününü veya alternatif kampüsümüzü seçiniz.
                         </p>
                       )}
                     </div>
@@ -2142,11 +2241,17 @@ const BurslulukHeroBlock = ({
   getSubtitleStyle,
   getIconStyle
 }: any) => {
-  const stats = block.stats || [
-    { value: "16-17 Mart", label: "Sınav Tarihi" },
-    { value: "4-11. Sınıflar", label: "Katılımcı Seviyesi" },
-    { value: "%100'e Varan", label: "Burs İmkanı" },
-  ];
+  const stats = (
+    block.stats || [
+      { value: "9 - 10 Ocak 2027", label: "Sınav Tarihi" },
+      { value: "4-11. Sınıflar", label: "Katılımcı Seviyesi" },
+      { value: "%100'e Varan", label: "Burs İmkanı" },
+    ]
+  ).map((stat: any) =>
+    stat?.value === "5 Ocak 2027" || stat?.value === "16-17 Mart"
+      ? { ...stat, value: "9 - 10 Ocak 2027" }
+      : stat
+  );
 
   const heroBg =
     block.image ||
@@ -2371,8 +2476,14 @@ const BurslulukExamFormBlock = ({
     const candidateNo = `DK2027-${formDocRef.id.slice(0, 6).toUpperCase()}`;
     const now = Date.now();
 
+    const examDate = formatExamDateLabel(
+      formData.exam_date || formData.examDate
+    ).slice(0, 64);
+
     const enrichedData = {
       ...formData,
+      exam_date: examDate,
+      examDate,
       candidateNo,
       ticketId,
     };
@@ -2411,7 +2522,7 @@ const BurslulukExamFormBlock = ({
       grade,
       campus,
       examSession,
-      examDate: "5 Ocak 2027",
+      examDate,
       createdAt: now,
     };
 
@@ -2955,6 +3066,26 @@ const BurslulukConfirmationBlock = ({
     pdfFileName: string;
     pngFileName: string;
   } | null>(null);
+  const [contactCampuses, setContactCampuses] = useState<ContactCampusDirectory>(() =>
+    getCachedContactCampuses()
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    const syncFromCache = () => {
+      if (mounted) {
+        setContactCampuses(getCachedContactCampuses());
+      }
+    };
+    window.addEventListener("dost:bootstrap-ready", syncFromCache);
+    loadContactCampusesFromFirestore().then((dir) => {
+      if (mounted) setContactCampuses(dir);
+    });
+    return () => {
+      mounted = false;
+      window.removeEventListener("dost:bootstrap-ready", syncFromCache);
+    };
+  }, []);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -3026,26 +3157,28 @@ const BurslulukConfirmationBlock = ({
     ? String(rawGrade)
     : `${rawGrade}. Sınıf`;
 
-  const campusVal = String(
+  const rawCampusSelection =
     subData.campus ||
-      subData.campus_preference ||
-      subData.campus_select ||
-      "eryaman",
-  ).toLowerCase();
+    subData.campus_preference ||
+    subData.campus_select ||
+    "Eryaman Kampüsü";
 
-  let campusName = "Eryaman Kampüsü - Ana Bina";
-  if (campusVal.includes("oran")) campusName = "Oran Kampüsü - Ana Bina";
-  else if (campusVal.includes("umitkoy") || campusVal.includes("ümitköy"))
-    campusName = "Ümitköy Kampüsü - Ana Bina";
-  else if (campusVal.includes("eryaman"))
-    campusName = "Eryaman Kampüsü - Ana Bina";
-  else if (subData.campus) campusName = String(subData.campus);
+  const {
+    campusName,
+    campusAddress: currentCampusAddress,
+    mapUrl: campusMapUrl,
+  } = resolveCampusDetailsFromDirectory(rawCampusSelection, contactCampuses);
 
   const examTime = parseExamSessionTime(
     subData.examSession || subData.exam_session || "Seans 1: 10:00"
   );
 
-  const examDate = subData.examDate || block.examDate || "5 Ocak 2027";
+  const rawSubExamDate = subData.examDate || subData.exam_date || "";
+  const examDate = rawSubExamDate
+    ? formatExamDateLabel(rawSubExamDate)
+    : block.examDate && block.examDate !== "5 Ocak 2027"
+      ? String(block.examDate)
+      : "9 OCAK 2027 CUMARTESİ";
   const searchId =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("id") || ""
@@ -3060,18 +3193,6 @@ const BurslulukConfirmationBlock = ({
   const formattedDocDate = submission?.createdAt
     ? new Date(submission.createdAt).toLocaleDateString("tr-TR")
     : new Date().toLocaleDateString("tr-TR");
-
-  const campusAddresses: any = block.campusAddresses || {
-    eryaman:
-      "Şehit Osman Avcı Mh. Malazgirt 1071 Cad. No:20 Eryaman / Etimesgut / Ankara",
-    oran: "Oran Mh. Rafet Canıtez Cd. No:8 Çankaya / Ankara",
-    umitkoy: "Ümitköy Mh. 2432. Cd. No:18 Çankaya / Ankara",
-  };
-
-  let currentCampusAddress = campusAddresses.eryaman;
-  if (campusVal.includes("oran")) currentCampusAddress = campusAddresses.oran;
-  else if (campusVal.includes("umitkoy") || campusVal.includes("ümitköy"))
-    currentCampusAddress = campusAddresses.umitkoy;
 
   const safeLogoUrl =
     block.documentLogo &&
@@ -3318,7 +3439,7 @@ const BurslulukConfirmationBlock = ({
           </button>
 
           <a
-            href={buildCampusMapsUrl(campusName, currentCampusAddress)}
+            href={campusMapUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 bg-white text-[#002147] border border-slate-300 hover:border-[#002147] px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-all active:scale-95 cursor-pointer text-xs sm:text-sm whitespace-nowrap"
@@ -3355,12 +3476,12 @@ const BurslulukConfirmationBlock = ({
         >
           <div className="h-full flex flex-col whitespace-normal md:whitespace-pre-line">
             {/* Document Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-[#002147] pb-6 mb-8 gap-4 whitespace-normal md:whitespace-pre-line">
-              <div className="flex items-center gap-4 whitespace-normal md:whitespace-pre-line">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-[#002147] pb-6 mb-6 gap-4 whitespace-normal md:whitespace-pre-line">
+              <div className="flex items-center gap-4 min-w-0 whitespace-normal md:whitespace-pre-line">
                 <img
                   src={safeLogoUrl}
                   alt="Dost Koleji Logo"
-                  className="h-12 w-auto object-contain whitespace-normal md:whitespace-pre-line"
+                  className="h-12 w-auto object-contain shrink-0 whitespace-normal md:whitespace-pre-line"
                   onError={(e: any) => {
                     if (!e.target.dataset.fallbackApplied) {
                       e.target.dataset.fallbackApplied = "1";
@@ -3368,24 +3489,29 @@ const BurslulukConfirmationBlock = ({
                     }
                   }}
                 />
-                <div>
-                  <h3 className="font-bold text-[#002147] text-lg uppercase tracking-wider whitespace-normal md:whitespace-pre-line">
+                <div className="min-w-0">
+                  <h3 className="font-bold text-[#002147] text-base md:text-lg uppercase tracking-wide leading-snug whitespace-normal md:whitespace-pre-line">
                     {block.documentTitle || "Bursluluk Sınavı Giriş Belgesi"}
                   </h3>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold whitespace-normal md:whitespace-pre-line">
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold whitespace-normal md:whitespace-pre-line">
                     DOST KOLEJİ EĞİTİM KURUMLARI
                   </p>
                 </div>
               </div>
-              <div className="text-left sm:text-right border-l sm:border-l-0 border-slate-200 pl-3 sm:pl-0 whitespace-normal md:whitespace-pre-line">
-                <p className="text-xs font-bold text-[#002147] tracking-wide whitespace-normal md:whitespace-pre-line">
+              <div className="text-left sm:text-right border-l sm:border-l-0 border-slate-200 pl-3 sm:pl-0 shrink-0 whitespace-nowrap">
+                <p className="text-xs font-bold text-[#002147] tracking-wide">
                   {block.documentNoPrefix || "BELGE NO: "}
                   {docNo}
                 </p>
-                <p className="text-xs text-slate-500 whitespace-normal md:whitespace-pre-line">
-                  Tarih: {formattedDocDate}
+                <p className="text-xs text-slate-500">
+                  Düzenlenme Tarihi: {formattedDocDate}
                 </p>
               </div>
+            </div>
+
+            {/* Print Reminder Callout */}
+            <div className="mb-6 px-4 py-3 rounded-xl bg-blue-50/80 border border-blue-200 text-xs sm:text-sm font-bold text-[#1e3a8a]">
+              Lütfen sınav günü bu belgeyi çıktı olarak kimlik kartınızla birlikte yanınızda bulundurunuz.
             </div>
 
             {/* Document Body - Student & Exam Info */}
@@ -3487,7 +3613,7 @@ const BurslulukConfirmationBlock = ({
                   >
                     location_on
                   </span>
-                  Kampüs Adresi
+                  Sınav Merkezi Açık Adresi
                 </h4>
                 <p className="text-[11px] text-slate-600 leading-relaxed whitespace-normal md:whitespace-pre-line">
                   {currentCampusAddress}

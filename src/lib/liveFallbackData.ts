@@ -401,7 +401,7 @@ export const liveFallbackData = {
           },
           "stats": [
             {
-              "value": "5 Ocak 2027",
+              "value": "9 - 10 Ocak 2027",
               "label": "Sınav Tarihi"
             },
             {
@@ -496,9 +496,17 @@ export const liveFallbackData = {
             {
               "type": "select",
               "required": true,
+              "fullWidth": true,
               "options": "Eryaman Kampüsü, Oran Kampüsü, Ümitköy Kampüsü",
               "name": "campus_preference",
               "label": "Kampüs Seçimi"
+            },
+            {
+              "required": true,
+              "type": "select",
+              "options": "9 OCAK 2027 CUMARTESİ, 10 OCAK 2027 PAZAR",
+              "label": "Sınav Tarihi",
+              "name": "exam_date"
             },
             {
               "required": true,
@@ -575,7 +583,7 @@ export const liveFallbackData = {
           ],
           "titlePart1Color": "#002147",
           "documentLogo": "/dost-logo-png.png",
-          "examDate": "5 Ocak 2027",
+          "examDate": "9 OCAK 2027 CUMARTESİ",
           "requiredDocuments": [
             "Nüfus Cüzdanı veya Kimlik Kartı",
             "Sınav Giriş Belgesi"
@@ -604,9 +612,9 @@ export const liveFallbackData = {
             "backgroundColor": "#f6f6f8"
           },
           "campusAddresses": {
-            "umitkoy": "Ümitköy Mh. 2432. Cd. No:18 Çankaya / Ankara",
-            "eryaman": "Şehit Osman Avcı Mh. Malazgirt 1071 Cad. No:20 Eryaman / Etimesgut / Ankara",
-            "oran": "Oran Mh. Rafet Canıtez Cd. No:8 Çankaya / Ankara"
+            "umitkoy": "Ümit Mah. Meksika Cad. 2434. Sok. No:3 Ümitköy/Ankara",
+            "eryaman": "Şehit Osman Avcı Mah. 2651. Cad. No:4F Eryaman/Ankara",
+            "oran": "Akpınar Mah. Dikmen Cad. No: 592 Çankaya/Ankara"
           },
           "titlePart1": "Başvurunuz Başarıyla ",
           "type": "bursluluk_confirmation",

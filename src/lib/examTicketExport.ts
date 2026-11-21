@@ -195,6 +195,16 @@ export async function renderExamTicketCanvas(
 
   const fontFamily = '"Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
+  // Ensure web fonts are ready before measuring text widths
+  if (typeof document !== 'undefined' && (document as any).fonts?.ready) {
+    try {
+      await Promise.race([
+        (document as any).fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 800))
+      ]);
+    } catch (_) {}
+  }
+
   // Page Background
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
@@ -211,7 +221,31 @@ export async function renderExamTicketCanvas(
   drawRoundedRect(ctx, 56, 64, width - 112, height - 128, 24);
   ctx.stroke();
 
-  // Header Section
+  // Header Section - Right Side First (QR Matrix + Belge No + Düzenlenme Tarihi) so we know exact right boundary
+  const qrSize = 86;
+  const qrX = width - 104 - qrSize;
+  const qrY = 108;
+  drawVerificationMatrix(ctx, `${ticket.docNo}-${ticket.studentName}`, qrX, qrY, qrSize);
+
+  const rightTextX = qrX - 20;
+  const belgeNoLabel = `BELGE NO: ${ticket.docNo}`;
+  const docDateLabel = `Düzenlenme Tarihi: ${ticket.docDate}`;
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#002147';
+  ctx.font = `800 18px ${fontFamily}`;
+  const belgeNoWidth = ctx.measureText(belgeNoLabel).width;
+  ctx.fillText(belgeNoLabel, rightTextX, 144);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = `600 15px ${fontFamily}`;
+  const docDateWidth = ctx.measureText(docDateLabel).width;
+  ctx.fillText(docDateLabel, rightTextX, 172);
+  ctx.textAlign = 'left';
+
+  const rightBlockLeftX = rightTextX - Math.max(belgeNoWidth, docDateWidth);
+
+  // Header Section - Left Side (Logo + Fitted Title & Subtitle)
   const logoSrc = ticket.logoUrl && !ticket.logoUrl.includes('aida-public') && !ticket.logoUrl.includes('unsplash.com')
     ? ticket.logoUrl
     : '/dost-logo-png.png';
@@ -219,65 +253,83 @@ export async function renderExamTicketCanvas(
 
   let titleStartX = 104;
   if (logoImg && logoImg.naturalWidth > 0) {
-    const targetH = 88;
+    const targetH = 76;
     const ratio = logoImg.naturalWidth / logoImg.naturalHeight;
-    const targetW = Math.min(220, targetH * ratio);
-    ctx.drawImage(logoImg, 104, 108, targetW, targetH);
-    titleStartX = 104 + targetW + 28;
+    const targetW = Math.min(185, targetH * ratio);
+    ctx.drawImage(logoImg, 104, 113, targetW, targetH);
+    titleStartX = 104 + targetW + 24;
   } else {
     ctx.fillStyle = '#002147';
-    drawRoundedRect(ctx, 104, 112, 80, 80, 16);
+    drawRoundedRect(ctx, 104, 112, 76, 76, 16);
     ctx.fill();
     ctx.fillStyle = '#D4AF37';
-    ctx.font = `800 34px ${fontFamily}`;
-    ctx.fillText('DK', 119, 164);
-    titleStartX = 208;
+    ctx.font = `800 32px ${fontFamily}`;
+    ctx.fillText('DK', 118, 161);
+    titleStartX = 204;
+  }
+
+  const maxTitleWidth = Math.max(240, rightBlockLeftX - titleStartX - 28);
+  const upperTitle = (ticket.documentTitle || 'BURSLULUK SINAVI GİRİŞ BELGESİ').toLocaleUpperCase('tr-TR');
+
+  let titleFontSize = 25;
+  ctx.font = `800 ${titleFontSize}px ${fontFamily}`;
+  while (titleFontSize > 17 && ctx.measureText(upperTitle).width > maxTitleWidth) {
+    titleFontSize -= 0.5;
+    ctx.font = `800 ${titleFontSize}px ${fontFamily}`;
   }
 
   ctx.fillStyle = '#002147';
-  ctx.font = `800 30px ${fontFamily}`;
-  ctx.fillText(
-    (ticket.documentTitle || 'BURSLULUK SINAVI GİRİŞ BELGESİ').toLocaleUpperCase('tr-TR'),
-    titleStartX,
-    146
-  );
+  const titleLines = wrapCanvasText(ctx, upperTitle, maxTitleWidth).slice(0, 2);
+  let subTitleY = 176;
+  if (titleLines.length === 1) {
+    ctx.fillText(titleLines[0], titleStartX, 145, maxTitleWidth);
+  } else {
+    ctx.fillText(titleLines[0], titleStartX, 132, maxTitleWidth);
+    ctx.fillText(titleLines[1], titleStartX, 156, maxTitleWidth);
+    subTitleY = 184;
+  }
 
+  const subTitleText = 'DOST KOLEJİ EĞİTİM KURUMLARI • RESMİ ADAY BELGESİ';
+  let subFontSize = 14.5;
+  ctx.font = `700 ${subFontSize}px ${fontFamily}`;
+  while (subFontSize > 11 && ctx.measureText(subTitleText).width > maxTitleWidth) {
+    subFontSize -= 0.5;
+    ctx.font = `700 ${subFontSize}px ${fontFamily}`;
+  }
   ctx.fillStyle = '#64748b';
-  ctx.font = `700 17px ${fontFamily}`;
-  ctx.fillText('DOST KOLEJİ EĞİTİM KURUMLARI • RESMİ ADAY BELGESİ', titleStartX, 180);
-
-  // Candidate Number & QR Matrix Box on Right
-  drawVerificationMatrix(ctx, `${ticket.docNo}-${ticket.studentName}`, width - 200, 106, 92);
-
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#002147';
-  ctx.font = `800 20px ${fontFamily}`;
-  ctx.fillText(`BELGE NO: ${ticket.docNo}`, width - 220, 142);
-
-  ctx.fillStyle = '#64748b';
-  ctx.font = `600 16px ${fontFamily}`;
-  ctx.fillText(`Düzenlenme Tarihi: ${ticket.docDate}`, width - 220, 172);
-  ctx.textAlign = 'left';
+  ctx.fillText(subTitleText, titleStartX, subTitleY, maxTitleWidth);
 
   // Header Divider
   ctx.fillStyle = '#002147';
   ctx.fillRect(104, 230, width - 208, 3);
 
   // Banner Callout
+  const calloutBoxW = width - 208;
   ctx.fillStyle = '#f0f5ff';
-  drawRoundedRect(ctx, 104, 262, width - 208, 74, 14);
+  drawRoundedRect(ctx, 104, 262, calloutBoxW, 74, 14);
   ctx.fill();
   ctx.strokeStyle = '#bfdbfe';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
+  const calloutText =
+    'Lütfen sınav günü bu belgeyi çıktı olarak kimlik kartınızla birlikte yanınızda bulundurunuz.';
+  const calloutMaxW = calloutBoxW - 52;
+  let calloutFontSize = 18;
+  ctx.font = `700 ${calloutFontSize}px ${fontFamily}`;
+  while (calloutFontSize > 14 && ctx.measureText(calloutText).width > calloutMaxW) {
+    calloutFontSize -= 0.5;
+    ctx.font = `700 ${calloutFontSize}px ${fontFamily}`;
+  }
+
   ctx.fillStyle = '#1e3a8a';
-  ctx.font = `700 18px ${fontFamily}`;
-  ctx.fillText(
-    'Lütfen sınav günü bu belgeyi (çıktı veya telefon ekran görüntüsü olarak) kimlik kartınızla birlikte yanınızda bulundurunuz.',
-    130,
-    306
-  );
+  const calloutLines = wrapCanvasText(ctx, calloutText, calloutMaxW).slice(0, 2);
+  if (calloutLines.length === 1) {
+    ctx.fillText(calloutLines[0], 130, 305, calloutMaxW);
+  } else {
+    ctx.fillText(calloutLines[0], 130, 293, calloutMaxW);
+    ctx.fillText(calloutLines[1], 130, 317, calloutMaxW);
+  }
 
   // Student & Exam Info Box
   const infoTop = 368;
@@ -293,7 +345,7 @@ export async function renderExamTicketCanvas(
     { label: 'ÖĞRENCİ ADI SOYADI', value: String(ticket.studentName || '-').toLocaleUpperCase('tr-TR') },
     { label: 'T.C. KİMLİK NUMARASI', value: String(ticket.studentTc || '-') },
     { label: 'SINIF SEVİYESİ', value: String(ticket.grade || '-') },
-    { label: 'SINAV TARİHİ', value: String(ticket.examDate || '5 Ocak 2027') },
+    { label: 'SINAV TARİHİ', value: String(ticket.examDate || '9 OCAK 2027 CUMARTESİ') },
     { label: 'SINAV SAATİ / SEANS', value: String(ticket.examTime || '10:00') },
     { label: 'SINAV MERKEZİ (KAMPÜS)', value: String(ticket.campusName || '-') },
   ];
@@ -310,10 +362,11 @@ export async function renderExamTicketCanvas(
     ctx.fillText(field.label, fx, fy);
 
     ctx.fillStyle = '#002147';
-    ctx.font = `800 26px ${fontFamily}`;
+    const valFontSize = field.value.length > 18 ? 22 : 26;
+    ctx.font = `800 ${valFontSize}px ${fontFamily}`;
     const wrappedVal = wrapCanvasText(ctx, field.value, colW - 16);
     wrappedVal.slice(0, 2).forEach((line, lIdx) => {
-      ctx.fillText(line, fx, fy + 38 + lIdx * 32);
+      ctx.fillText(line, fx, fy + 38 + lIdx * 30);
     });
 
     if (row < 2) {

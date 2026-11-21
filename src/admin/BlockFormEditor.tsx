@@ -119,6 +119,31 @@ export default function BlockFormEditor({
         return DEFAULT_SCHOLARSHIP_INPUTS;
       return [];
     }
+    if (
+      arrayKey === "inputs" &&
+      block.type === "bursluluk_exam_form" &&
+      Array.isArray(current) &&
+      current.length > 0 &&
+      !current.some((inp: any) => inp.name === "exam_date" || inp.name === "examDate")
+    ) {
+      const normalized = [...current];
+      const examDateField = {
+        type: "select",
+        name: "exam_date",
+        label: "Sınav Tarihi",
+        options: "9 OCAK 2027 CUMARTESİ, 10 OCAK 2027 PAZAR",
+        required: true
+      };
+      const sessionIdx = normalized.findIndex(
+        (inp: any) => inp.name === "exam_session" || inp.name === "examSession"
+      );
+      if (sessionIdx !== -1) {
+        normalized.splice(sessionIdx, 0, examDateField);
+      } else {
+        normalized.push(examDateField);
+      }
+      return normalized;
+    }
     return current || [];
   };
 

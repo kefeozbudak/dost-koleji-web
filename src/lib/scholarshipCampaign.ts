@@ -1,10 +1,18 @@
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { parseExamSessionTime } from './examTicketExport';
+import { getCachedData, setCachedData, isCacheFresh, fetchWithDedup } from './cache';
 
 const OUTBOX_STORAGE_KEY = 'dost_pending_submissions_v1';
 const ATTRIBUTION_STORAGE_KEY = 'dost_campaign_attribution_v1';
 const DRAFT_PREFIX = 'dost_form_draft_v1_';
+
+export const EXAM_DATE_OPTIONS = [
+  '9 OCAK 2027 CUMARTESİ',
+  '10 OCAK 2027 PAZAR'
+] as const;
+
+export const DEFAULT_EXAM_DATE = EXAM_DATE_OPTIONS[0];
 
 export interface CampaignAttribution {
   ad_channel: string;
@@ -370,42 +378,97 @@ export async function submitFormResilient(params: {
 }
 
 /**
- * Kampüs ve Seans Kontenjan Anahtarı Yardımcısı (Örn: "eryaman__1", "umitkoy__2")
+ * Kampüs, Sınav Tarihi ve Seans Kontenjan Anahtarı Yardımcısı
+ * Örn: "eryaman__9_ocak__1", "umitkoy__10_ocak__2" (geriye dönük "eryaman__1" uyumlu)
  */
 export function normalizeCampusKey(rawCampus: any): 'eryaman' | 'umitkoy' | 'oran' | '' {
-  const c = String(rawCampus || '').toLowerCase();
+  const c = String(rawCampus || '').toLocaleLowerCase('tr-TR');
   if (c.includes('ümitköy') || c.includes('umitkoy')) return 'umitkoy';
   if (c.includes('oran')) return 'oran';
   if (c.includes('eryaman')) return 'eryaman';
   return '';
 }
 
+export function normalizeExamDateSlot(rawDate: any): '9_ocak' | '10_ocak' | '' {
+  const d = String(rawDate || '').toLocaleLowerCase('tr-TR').trim();
+  if (!d) return '';
+  if (d.includes('10') || d.includes('pazar')) return '10_ocak';
+  if (d.includes('9') || d.includes('cumartesi')) return '9_ocak';
+  return '';
+}
+
+export function formatExamDateLabel(rawDate: any): string {
+  const rawStr = String(rawDate || '').trim();
+  if (!rawStr || rawStr === '5 Ocak 2027') return DEFAULT_EXAM_DATE;
+  const slot = normalizeExamDateSlot(rawStr);
+  if (slot === '10_ocak') return '10 OCAK 2027 PAZAR';
+  if (slot === '9_ocak') return '9 OCAK 2027 CUMARTESİ';
+  return rawStr;
+}
+
 export function normalizeSessionSlot(rawSession: any): '1' | '2' {
-  const s = String(rawSession || '').toLowerCase();
+  const s = String(rawSession || '').toLocaleLowerCase('tr-TR');
   if (s.includes('16:00') || s.includes('seans 2') || s.includes('session_2') || s.includes('öğleden')) {
     return '2';
   }
   return '1';
 }
 
-export function getCampusSessionKey(rawCampus: any, rawSession: any): string {
+export function getCampusSessionKey(
+  rawCampus: any,
+  rawSession: any,
+  rawExamDate?: any
+): string {
   const cKey = normalizeCampusKey(rawCampus);
   if (!cKey) return '';
   const sSlot = normalizeSessionSlot(rawSession);
+  const dSlot = normalizeExamDateSlot(rawExamDate);
+  if (dSlot) {
+    return `${cKey}__${dSlot}__${sSlot}`;
+  }
   return `${cKey}__${sSlot}`;
 }
 
 export function isCampusSessionClosed(
   generalSettings: any,
   rawCampus: any,
-  rawSession: any
+  rawSession: any,
+  rawExamDate?: any
 ): boolean {
-  const key = getCampusSessionKey(rawCampus, rawSession);
-  if (!key) return false;
+  const cKey = normalizeCampusKey(rawCampus);
+  if (!cKey) return false;
   const closedList: string[] = Array.isArray(generalSettings?.burslulukClosedSessions)
     ? generalSettings.burslulukClosedSessions
     : [];
-  return closedList.includes(key);
+  if (closedList.length === 0) return false;
+
+  const sSlot = normalizeSessionSlot(rawSession);
+  const legacyKey = `${cKey}__${sSlot}`;
+  if (closedList.includes(legacyKey)) return true;
+
+  const dSlot = normalizeExamDateSlot(rawExamDate);
+  if (dSlot) {
+    return closedList.includes(`${cKey}__${dSlot}__${sSlot}`);
+  }
+  // Henüz sınav tarihi seçilmemişse yalnızca her iki gün de kapalıysa kilitli göster
+  return (
+    closedList.includes(`${cKey}__9_ocak__${sSlot}`) &&
+    closedList.includes(`${cKey}__10_ocak__${sSlot}`)
+  );
+}
+
+export function isCampusDateFullyClosed(
+  generalSettings: any,
+  rawCampus: any,
+  rawExamDate: any
+): boolean {
+  const cKey = normalizeCampusKey(rawCampus);
+  const dSlot = normalizeExamDateSlot(rawExamDate);
+  if (!cKey || !dSlot) return false;
+  return (
+    isCampusSessionClosed(generalSettings, rawCampus, '1', rawExamDate) &&
+    isCampusSessionClosed(generalSettings, rawCampus, '2', rawExamDate)
+  );
 }
 
 /**
@@ -448,7 +511,7 @@ function parseTurkishDateToYMD(rawDate: string): { year: number; month: number; 
   return {
     year: yearMatch ? parseInt(yearMatch[1], 10) : 2027,
     month: foundMonth,
-    day: dayMatch ? Math.min(31, Math.max(1, parseInt(dayMatch[1], 10))) : 5
+    day: dayMatch ? Math.min(31, Math.max(1, parseInt(dayMatch[1], 10))) : 9
   };
 }
 
@@ -559,7 +622,143 @@ export function buildWhatsAppTicketUrl(params: {
   return `${base}?text=${encodeURIComponent(message)}`;
 }
 
-export function buildCampusMapsUrl(campusName: string, campusAddress: string): string {
+export function buildCampusMapsUrl(
+  campusName: string,
+  campusAddress: string,
+  directMapUrl?: string
+): string {
+  if (directMapUrl && /^https?:\/\//i.test(directMapUrl.trim())) {
+    return directMapUrl.trim();
+  }
   const query = `${campusName} ${campusAddress}`.trim();
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+/**
+ * "İletişim Bilgilerimiz" (/iletisim) sayfasındaki kampüs adres ve harita bilgilerini dinamik çözümleyici
+ */
+export interface ContactCampusItem {
+  name: string;
+  address: string;
+  mapUrl: string;
+}
+
+export interface ContactCampusDirectory {
+  eryaman: ContactCampusItem;
+  oran: ContactCampusItem;
+  umitkoy: ContactCampusItem;
+}
+
+export const DEFAULT_CONTACT_CAMPUSES: ContactCampusDirectory = {
+  eryaman: {
+    name: 'Eryaman Kampüsü',
+    address: 'Şehit Osman Avcı Mah. 2651. Cad. No:4F Eryaman/Ankara',
+    mapUrl: 'https://maps.app.goo.gl/QjDp3RnuQVfbXmK88'
+  },
+  oran: {
+    name: 'Oran Kampüsü',
+    address: 'Akpınar Mah. Dikmen Cad. No: 592 Çankaya/Ankara',
+    mapUrl: 'https://maps.app.goo.gl/7Cp6TkAZdFAxPvMC7'
+  },
+  umitkoy: {
+    name: 'Ümitköy Kampüsü',
+    address: 'Ümit Mah. Meksika Cad. 2434. Sok. No:3 Ümitköy/Ankara',
+    mapUrl: 'https://maps.app.goo.gl/R1gBYiXkCjo4AcrR8'
+  }
+};
+
+function cleanSingleLineAddress(raw: any): string {
+  return String(raw || '')
+    .replace(/\s*\r?\n\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export function extractContactCampusesFromPage(iletisimPage: any): ContactCampusDirectory {
+  const result: ContactCampusDirectory = {
+    eryaman: { ...DEFAULT_CONTACT_CAMPUSES.eryaman },
+    oran: { ...DEFAULT_CONTACT_CAMPUSES.oran },
+    umitkoy: { ...DEFAULT_CONTACT_CAMPUSES.umitkoy }
+  };
+
+  const blocks = iletisimPage?.blocks;
+  if (!Array.isArray(blocks)) return result;
+
+  for (const block of blocks) {
+    if (!block || !Array.isArray(block.items)) continue;
+    if (block.type !== 'contact_campuses' && !block.items.some((it: any) => it?.address)) {
+      continue;
+    }
+
+    for (const item of block.items) {
+      if (!item) continue;
+      const key = normalizeCampusKey(`${item.badge || ''} ${item.title || ''} ${item.name || ''}`);
+      const addr = cleanSingleLineAddress(item.address || item.desc);
+      if (!key || !addr) continue;
+
+      result[key].address = addr;
+      const cleanTitle = cleanSingleLineAddress(item.title || item.name);
+      if (cleanTitle) {
+        result[key].name = cleanTitle;
+      }
+      const rawMapUrl = String(item.buttonUrl || item.link || item.url || '').trim();
+      if (rawMapUrl && /^https?:\/\//i.test(rawMapUrl)) {
+        result[key].mapUrl = rawMapUrl;
+      }
+    }
+  }
+
+  return result;
+}
+
+export function getCachedContactCampuses(): ContactCampusDirectory {
+  const cachedPage = getCachedData<any>('page_iletisim', null);
+  return extractContactCampusesFromPage(cachedPage);
+}
+
+export async function loadContactCampusesFromFirestore(): Promise<ContactCampusDirectory> {
+  if (isCacheFresh('page_iletisim', 15 * 60 * 1000)) {
+    return getCachedContactCampuses();
+  }
+  try {
+    const snap = await fetchWithDedup('fb_page_iletisim', () =>
+      getDoc(doc(db, 'pages', 'iletisim'))
+    );
+    if (snap.exists()) {
+      const pageData = snap.data();
+      setCachedData('page_iletisim', pageData);
+      return extractContactCampusesFromPage(pageData);
+    }
+  } catch (_) {
+    // Offline veya erişim gecikmesinde önbellek / varsayılan İletişim Bilgilerimiz verisini kullan
+  }
+  return getCachedContactCampuses();
+}
+
+export function resolveCampusDetailsFromDirectory(
+  rawCampus: any,
+  directory: ContactCampusDirectory = getCachedContactCampuses()
+): {
+  campusKey: 'eryaman' | 'oran' | 'umitkoy';
+  campusName: string;
+  campusAddress: string;
+  mapUrl: string;
+} {
+  const matchedKey = normalizeCampusKey(rawCampus) || 'eryaman';
+  const entry = directory[matchedKey] || DEFAULT_CONTACT_CAMPUSES[matchedKey];
+  const rawStr = cleanSingleLineAddress(rawCampus);
+  const displayCampusName =
+    entry.name ||
+    (matchedKey === 'oran'
+      ? 'Oran Kampüsü'
+      : matchedKey === 'umitkoy'
+      ? 'Ümitköy Kampüsü'
+      : rawStr || 'Eryaman Kampüsü');
+
+  return {
+    campusKey: matchedKey,
+    campusName: displayCampusName,
+    campusAddress: entry.address,
+    mapUrl: buildCampusMapsUrl(displayCampusName, entry.address, entry.mapUrl)
+  };
 }

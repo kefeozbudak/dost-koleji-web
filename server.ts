@@ -269,7 +269,12 @@ async function startServer() {
             grade: String(ticketPayload.grade || 'Belirtilmedi').slice(0, 64),
             campus: String(ticketPayload.campus || 'Eryaman Kampüsü').slice(0, 120),
             examSession: String(ticketPayload.examSession || 'Seans 1: 10:00').slice(0, 64),
-            examDate: String(ticketPayload.examDate || '5 Ocak 2027').slice(0, 64),
+            examDate: String(
+              ticketPayload.examDate ||
+                formPayload?.data?.exam_date ||
+                formPayload?.data?.examDate ||
+                '9 OCAK 2027 CUMARTESİ'
+            ).slice(0, 64),
             createdAt:
               typeof ticketPayload.createdAt === 'number' && ticketPayload.createdAt > 1700000000000
                 ? ticketPayload.createdAt
