@@ -3630,11 +3630,11 @@ const BurslulukConfirmationBlock = ({
           <div className="h-full flex flex-col whitespace-normal md:whitespace-pre-line">
             {/* Document Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-[#002147] pb-6 mb-6 gap-4 whitespace-normal md:whitespace-pre-line">
-              <div className="flex items-center gap-4 min-w-0 whitespace-normal md:whitespace-pre-line">
+              <div className="flex items-center gap-4 sm:gap-5 min-w-0 whitespace-normal md:whitespace-pre-line">
                 <img
                   src={safeLogoUrl}
                   alt="Dost Koleji Logo"
-                  className="h-12 w-auto object-contain shrink-0 whitespace-normal md:whitespace-pre-line"
+                  className="w-[190px] sm:w-[228px] h-auto max-h-20 object-contain shrink-0 select-none"
                   onError={(e: any) => {
                     if (!e.target.dataset.fallbackApplied) {
                       e.target.dataset.fallbackApplied = "1";

@@ -108,6 +108,57 @@ function loadImageSafe(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
+/**
+ * Çok yüksek çözünürlüklü logoları (örn. 13185x4011 PNG) kademeli (mipmap) küçülterek
+ * kenar kırılması olmadan jilet netliğinde ve %100 orantılı çizer.
+ */
+function drawImageHighQuality(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  drawW: number,
+  drawH: number
+) {
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  if ('imageSmoothingQuality' in ctx) {
+    ctx.imageSmoothingQuality = 'high';
+  }
+
+  let curSource: CanvasImageSource = img;
+  let curW = img.naturalWidth;
+  let curH = img.naturalHeight;
+
+  if (curW > drawW * 2.2 && typeof document !== 'undefined') {
+    const aspect = curH / curW;
+    let stepW = Math.min(4096, Math.max(Math.round(drawW * 2), Math.round(curW * 0.5)));
+    let stepH = Math.max(1, Math.round(stepW * aspect));
+
+    while (curW > drawW * 2.0) {
+      const stepCanvas = document.createElement('canvas');
+      stepCanvas.width = stepW;
+      stepCanvas.height = stepH;
+      const stepCtx = stepCanvas.getContext('2d');
+      if (!stepCtx) break;
+      stepCtx.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in stepCtx) {
+        stepCtx.imageSmoothingQuality = 'high';
+      }
+      stepCtx.drawImage(curSource, 0, 0, stepW, stepH);
+      curSource = stepCanvas;
+      curW = stepW;
+      curH = stepH;
+      if (curW <= drawW * 2.0) break;
+      stepW = Math.max(Math.round(drawW * 1.5), Math.round(curW * 0.5));
+      stepH = Math.max(1, Math.round(stepW * aspect));
+    }
+  }
+
+  ctx.drawImage(curSource, x, y, drawW, drawH);
+  ctx.restore();
+}
+
 function drawRoundedRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -238,82 +289,88 @@ export async function renderExamTicketCanvas(
   ctx.stroke();
 
   // Header Section - Right Side First (QR Matrix + Belge No + Düzenlenme Tarihi) so we know exact right boundary
-  const qrSize = 86;
-  const qrX = width - 104 - qrSize;
-  const qrY = 108;
+  const qrSize = 84;
+  const qrX = width - 100 - qrSize;
+  const qrY = 109;
   drawVerificationMatrix(ctx, `${ticket.docNo}-${ticket.studentName}`, qrX, qrY, qrSize);
 
-  const rightTextX = qrX - 20;
+  const rightTextX = qrX - 16;
   const belgeNoLabel = `BELGE NO: ${ticket.docNo}`;
   const docDateLabel = `Düzenlenme Tarihi: ${ticket.docDate}`;
 
   ctx.textAlign = 'right';
   ctx.fillStyle = '#002147';
-  ctx.font = `800 18px ${fontFamily}`;
+  ctx.font = `800 17.5px ${fontFamily}`;
   const belgeNoWidth = ctx.measureText(belgeNoLabel).width;
   ctx.fillText(belgeNoLabel, rightTextX, 144);
 
   ctx.fillStyle = '#64748b';
-  ctx.font = `600 15px ${fontFamily}`;
+  ctx.font = `600 14.5px ${fontFamily}`;
   const docDateWidth = ctx.measureText(docDateLabel).width;
   ctx.fillText(docDateLabel, rightTextX, 172);
   ctx.textAlign = 'left';
 
   const rightBlockLeftX = rightTextX - Math.max(belgeNoWidth, docDateWidth);
 
-  // Header Section - Left Side (Logo + Fitted Title & Subtitle)
+  // Header Section - Left Side (Proportional Larger Logo + Fitted Title & Subtitle)
   const logoSrc = ticket.logoUrl && !ticket.logoUrl.includes('aida-public') && !ticket.logoUrl.includes('unsplash.com')
     ? ticket.logoUrl
     : '/dost-logo-png.png';
   const logoImg = await loadImageSafe(logoSrc);
 
-  let titleStartX = 104;
-  if (logoImg && logoImg.naturalWidth > 0) {
-    const targetH = 76;
-    const ratio = logoImg.naturalWidth / logoImg.naturalHeight;
-    const targetW = Math.min(185, targetH * ratio);
-    ctx.drawImage(logoImg, 104, 113, targetW, targetH);
-    titleStartX = 104 + targetW + 24;
+  let titleStartX = 100;
+  if (logoImg && logoImg.naturalWidth > 0 && logoImg.naturalHeight > 0) {
+    const maxLogoW = 268;
+    const maxLogoH = 88;
+    const uniformScale = Math.min(
+      maxLogoW / logoImg.naturalWidth,
+      maxLogoH / logoImg.naturalHeight
+    );
+    const drawW = Math.round(logoImg.naturalWidth * uniformScale);
+    const drawH = Math.round(logoImg.naturalHeight * uniformScale);
+    const logoY = Math.round(151 - drawH / 2);
+    drawImageHighQuality(ctx, logoImg, 100, logoY, drawW, drawH);
+    titleStartX = 100 + drawW + 22;
   } else {
     ctx.fillStyle = '#002147';
-    drawRoundedRect(ctx, 104, 112, 76, 76, 16);
+    drawRoundedRect(ctx, 100, 112, 76, 76, 16);
     ctx.fill();
     ctx.fillStyle = '#D4AF37';
     ctx.font = `800 32px ${fontFamily}`;
-    ctx.fillText('DK', 118, 161);
-    titleStartX = 204;
+    ctx.fillText('DK', 114, 161);
+    titleStartX = 200;
   }
 
-  const maxTitleWidth = Math.max(240, rightBlockLeftX - titleStartX - 28);
+  const maxTitleWidth = Math.max(240, rightBlockLeftX - titleStartX - 18);
   const upperTitle = (ticket.documentTitle || 'BURSLULUK SINAVI GİRİŞ BELGESİ').toLocaleUpperCase('tr-TR');
 
-  let titleFontSize = 25;
+  let titleFontSize = 24;
   ctx.font = `800 ${titleFontSize}px ${fontFamily}`;
-  while (titleFontSize > 17 && ctx.measureText(upperTitle).width > maxTitleWidth) {
+  while (titleFontSize > 15 && ctx.measureText(upperTitle).width > maxTitleWidth) {
     titleFontSize -= 0.5;
     ctx.font = `800 ${titleFontSize}px ${fontFamily}`;
   }
 
   ctx.fillStyle = '#002147';
   const titleLines = wrapCanvasText(ctx, upperTitle, maxTitleWidth).slice(0, 2);
-  let subTitleY = 176;
+  let subTitleY = 175;
   if (titleLines.length === 1) {
-    ctx.fillText(titleLines[0], titleStartX, 145, maxTitleWidth);
+    ctx.fillText(titleLines[0], titleStartX, 145);
   } else {
-    ctx.fillText(titleLines[0], titleStartX, 132, maxTitleWidth);
-    ctx.fillText(titleLines[1], titleStartX, 156, maxTitleWidth);
+    ctx.fillText(titleLines[0], titleStartX, 132);
+    ctx.fillText(titleLines[1], titleStartX, 156);
     subTitleY = 184;
   }
 
   const subTitleText = 'DOST KOLEJİ EĞİTİM KURUMLARI • RESMİ ADAY BELGESİ';
-  let subFontSize = 14.5;
+  let subFontSize = 14;
   ctx.font = `700 ${subFontSize}px ${fontFamily}`;
-  while (subFontSize > 11 && ctx.measureText(subTitleText).width > maxTitleWidth) {
+  while (subFontSize > 10.5 && ctx.measureText(subTitleText).width > maxTitleWidth) {
     subFontSize -= 0.5;
     ctx.font = `700 ${subFontSize}px ${fontFamily}`;
   }
   ctx.fillStyle = '#64748b';
-  ctx.fillText(subTitleText, titleStartX, subTitleY, maxTitleWidth);
+  ctx.fillText(subTitleText, titleStartX, subTitleY);
 
   // Header Divider
   ctx.fillStyle = '#002147';
@@ -610,7 +667,7 @@ function sanitizeFilename(raw: string): string {
 
 export async function generateExamTicketFiles(ticket: ExamTicketRenderData) {
   const canvas = await renderExamTicketCanvas(ticket);
-  const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.94);
+  const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.97);
   const pngDataUrl = canvas.toDataURL('image/png');
   const pdfBlob = jpegDataUrlToPdfBlob(jpegDataUrl, canvas.width, canvas.height);
   const baseName = `Dost_Koleji_Sinav_Giris_Belgesi_${sanitizeFilename(ticket.studentName)}_${ticket.docNo}`;
