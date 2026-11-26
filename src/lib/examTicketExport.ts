@@ -276,12 +276,6 @@ export async function renderExamTicketCanvas(
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
-  // Top Decorative Brand Strip
-  ctx.fillStyle = '#002147';
-  ctx.fillRect(0, 0, width, 22);
-  ctx.fillStyle = '#D4AF37';
-  ctx.fillRect(0, 22, width, 6);
-
   // Outer Border Card
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 2;
